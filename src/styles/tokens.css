@@ -1,0 +1,185 @@
+/* Mira — a quiet, monochrome chat interface inspired by ChatGPT's layout. */
+
+:root {
+  color-scheme: light;
+
+  --font-sans:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", Arial, "PingFang SC",
+    "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  --font-mono:
+    ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+
+  --sidebar-width: 260px;
+  --titlebar-height: 48px;
+  --thread-max: 768px;
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+  --space-8: 64px;
+
+  --text-12: 12px;
+  --text-14: 14px;
+  --text-16: 16px;
+  --text-18: 18px;
+  --text-24: 24px;
+  --text-32: 32px;
+
+  --radius-1: 8px;
+  --radius-2: 12px;
+  --radius-3: 16px;
+  --radius-4: 24px;
+  --radius-pill: 28px;
+
+  --bg: #ffffff;
+  --bg-sidebar: #f9f9f9;
+  --bg-elevated: #ffffff;
+  --bg-subtle: #f4f4f4;
+  --bg-hover: rgba(0, 0, 0, 0.05);
+  --border: #e5e5e5;
+  --border-strong: #d4d4d4;
+  --text: #0d0d0d;
+  --text-secondary: #5d5d5d;
+  --text-tertiary: #8f8f8f;
+  --accent: #0d0d0d;
+  --accent-text: #ffffff;
+  --user-bubble: #f4f4f4;
+  --composer-bg: #ffffff;
+  --code-bg: #f6f6f6;
+  --code-head: #ededed;
+  --avatar: #0d0d0d;
+  --avatar-text: #ffffff;
+  --link: #0b57d0;
+  --focus: #2563eb;
+  --focus-ring: rgba(37, 99, 235, 0.18);
+  --danger: #b42318;
+  --danger-soft: #fef3f2;
+  --danger-solid: #b42318;
+  --danger-solid-text: #ffffff;
+  --warning-soft: #fff8e6;
+  --warning-border: #efd9a7;
+  --backdrop: rgba(0, 0, 0, 0.35);
+
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.04);
+  --shadow-2: 0 1px 2px rgba(0, 0, 0, 0.04), 0 2px 6px rgba(0, 0, 0, 0.06);
+  --shadow-3: 0 2px 4px rgba(0, 0, 0, 0.05), 0 8px 18px rgba(0, 0, 0, 0.08);
+  --shadow-4: 0 4px 10px rgba(0, 0, 0, 0.06), 0 16px 32px rgba(0, 0, 0, 0.12);
+  --shadow-5:
+    0 2px 4px rgba(0, 0, 0, 0.05), 0 12px 24px rgba(0, 0, 0, 0.1), 0 32px 64px rgba(0, 0, 0, 0.18);
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --bg: #212121;
+  --bg-sidebar: #171717;
+  --bg-elevated: #2f2f2f;
+  --bg-subtle: #303030;
+  --bg-hover: rgba(255, 255, 255, 0.07);
+  --border: #3a3a3a;
+  --border-strong: #4f4f4f;
+  --text: #ececec;
+  --text-secondary: #b4b4b4;
+  --text-tertiary: #8f8f8f;
+  --accent: #ffffff;
+  --accent-text: #0d0d0d;
+  --user-bubble: #303030;
+  --composer-bg: #303030;
+  --code-bg: #0d0d0d;
+  --code-head: #1b1b1b;
+  --avatar: #ffffff;
+  --avatar-text: #0d0d0d;
+  --link: #7ab8ff;
+  --focus: #6ea8fe;
+  --focus-ring: rgba(110, 168, 254, 0.2);
+  --danger: #ff9b91;
+  --danger-soft: rgba(255, 99, 71, 0.12);
+  --danger-solid: #b42318;
+  --danger-solid-text: #ffffff;
+  --warning-soft: rgba(245, 166, 35, 0.12);
+  --warning-border: rgba(245, 166, 35, 0.32);
+  --backdrop: rgba(0, 0, 0, 0.6);
+
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-2: 0 1px 2px rgba(0, 0, 0, 0.35), 0 2px 8px rgba(0, 0, 0, 0.25);
+  --shadow-3: 0 2px 4px rgba(0, 0, 0, 0.35), 0 8px 20px rgba(0, 0, 0, 0.3);
+  --shadow-4: 0 4px 10px rgba(0, 0, 0, 0.4), 0 18px 36px rgba(0, 0, 0, 0.35);
+  --shadow-5:
+    0 2px 4px rgba(0, 0, 0, 0.4), 0 16px 32px rgba(0, 0, 0, 0.45), 0 40px 80px rgba(0, 0, 0, 0.5);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+html {
+  background: var(--bg);
+}
+
+body {
+  margin: 0;
+  overflow: hidden;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: var(--text-16);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+button {
+  color: inherit;
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: default;
+}
+
+::selection {
+  background: var(--focus-ring);
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: var(--radius-1);
+  background: var(--border-strong);
+  background-clip: content-box;
+}
+
+:where(button, a, input, select, textarea, summary, [role="button"]):focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}

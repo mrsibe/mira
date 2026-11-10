@@ -1,0 +1,71 @@
+/* ── Toast and boot ────────────────────────────────────────────────────── */
+
+.toast {
+  position: fixed;
+  z-index: 60;
+  bottom: var(--space-5);
+  left: 50%;
+  max-width: min(480px, 90vw);
+  padding: 10px var(--space-3);
+  color: var(--bg);
+  font-size: 13px;
+  background: var(--text);
+  border-radius: var(--radius-1);
+  box-shadow: var(--shadow-4);
+  transform: translateX(-50%);
+  animation: toast-in 160ms ease;
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 6px);
+  }
+}
+
+.boot-screen {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-4);
+  height: 100dvh;
+  padding: var(--space-5);
+  color: var(--text-secondary);
+  font-size: var(--text-14);
+  text-align: center;
+  background: var(--bg);
+}
+
+.boot-screen .boot-mark {
+  width: 44px;
+  height: 44px;
+  color: var(--text);
+  animation: breathe 1.8s ease-in-out infinite;
+}
+
+@keyframes breathe {
+  50% {
+    opacity: 0.55;
+    transform: scale(0.95);
+  }
+}
+
+.boot-screen h1 {
+  margin: 0;
+  color: var(--text);
+  font-size: var(--text-24);
+  font-weight: 500;
+  letter-spacing: -0.02em;
+}
+
+.boot-screen p {
+  max-width: 440px;
+  margin: 0;
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+
+.boot-screen.error p {
+  color: var(--danger);
+}
