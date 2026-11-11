@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import { MiraUpdate, type UpdateStatus } from "../../mygo";
 import { Button, Notice, Switch } from "../../ui";
-import { BrandMark } from "../BrandMark";
 
 export function AboutSettings() {
   const [status, setStatus] = useState<UpdateStatus | null>(null);
@@ -59,51 +58,34 @@ export function AboutSettings() {
   const availability = updateAvailability(status);
 
   return (
-    <>
-      <section className="settings-group">
-        <div className="about-app">
-          <span className="about-logo" aria-hidden="true">
-            <BrandMark />
-          </span>
-          <div className="about-app-copy">
-            <strong>Mira</strong>
-            <span>版本 {version}</span>
-          </div>
+    <section className="settings-group">
+      <div className="about-heading">
+        <strong>Mira</strong>
+        <span>版本 {version}</span>
+      </div>
+      <Switch
+        checked={status?.automaticChecks ?? false}
+        disabled={!status?.enabled || busy}
+        title="自动检查更新"
+        description="启动时检查，安装前确认。"
+        onChange={() => void toggleAutomaticChecks()}
+      />
+
+      <div className="update-row">
+        <div className="update-copy">
+          <strong>{availability.title}</strong>
+          <span>{availability.detail}</span>
         </div>
-        <p className="settings-description">
-          本地优先的 Agent 桌面客户端。对话、设置和记忆都保存在这台电脑上。
-        </p>
-      </section>
+        <Button variant="quiet" onClick={() => void checkForUpdates()} disabled={!status}>
+          {status?.availableVersion ? "更新" : status?.enabled ? "检查" : "查看状态"}
+        </Button>
+      </div>
 
-      <section className="settings-group">
-        <h3 className="settings-group-title">软件更新</h3>
-        <Switch
-          checked={status?.automaticChecks ?? false}
-          disabled={!status?.enabled || busy}
-          title="自动检查更新"
-          description="启动后检查新版本，安装前会先征求你的同意。"
-          onChange={() => void toggleAutomaticChecks()}
-        />
-
-        <div className="update-card">
-          <div className="update-copy">
-            <strong>{availability.title}</strong>
-            <span>{availability.detail}</span>
-          </div>
-          <Button onClick={() => void checkForUpdates()} disabled={!status}>
-            {status?.enabled ? "检查更新" : "查看状态"}
-          </Button>
-        </div>
-
-        {status && !status.enabled && (
-          <Notice>
-            当前安装方式无法自动更新。开发模式、由包管理器安装或安装目录不可写时会这样；请从 GitHub
-            Releases 下载新版本。
-          </Notice>
-        )}
-        {error && <Notice tone="error">{error}</Notice>}
-      </section>
-    </>
+      {status && !status.enabled && (
+        <Notice>当前安装方式不支持自动更新，请从 GitHub Releases 下载新版本。</Notice>
+      )}
+      {error && <Notice tone="error">{error}</Notice>}
+    </section>
   );
 }
 
@@ -113,21 +95,19 @@ function updateAvailability(status: UpdateStatus | null) {
   }
   if (status.availableVersion) {
     return {
-      title: `发现新版本 ${status.availableVersion}`,
-      detail: status.lastCheck
-        ? `上次检查于 ${formatCheckTime(status.lastCheck)}，打开更新窗口即可安装。`
-        : "打开更新窗口即可安装。",
+      title: `可更新到 ${status.availableVersion}`,
+      detail: status.lastCheck ? `检查于 ${formatCheckTime(status.lastCheck)}` : "",
     };
   }
   if (status.lastCheck) {
     return {
       title: "已是最新版本",
-      detail: `上次检查于 ${formatCheckTime(status.lastCheck)}。`,
+      detail: `检查于 ${formatCheckTime(status.lastCheck)}`,
     };
   }
   return {
-    title: "尚未检查更新",
-    detail: status.enabled ? "检查会在后台自动进行，也可以现在手动检查。" : "",
+    title: "尚未检查",
+    detail: status.enabled ? "启动时会自动检查" : "",
   };
 }
 

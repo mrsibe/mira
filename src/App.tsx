@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { BrandMark } from "./components/BrandMark";
 import { Composer } from "./components/Composer";
 import { ConfirmDialog } from "./components/ConfirmDialog";
+import { ProjectDialog } from "./components/ProjectDialog";
 import { SettingsDialog } from "./components/SettingsDialog";
 import { Sidebar } from "./components/Sidebar";
 import { Thread } from "./components/Thread";
@@ -16,12 +17,17 @@ import {
   type Input,
   Mira,
   MiraTheme,
+  type Project,
   type UIMessage,
   type View,
 } from "./mygo";
 import { Toast } from "./ui";
 
 const reasoningStorageKey = "mira-reasoning-effort";
+
+type ProjectDialogState =
+  | { mode: "create"; afterMoveConversationID?: string }
+  | { mode: "rename"; project: Project };
 
 function initialReasoningEffort(): ReasoningEffort {
   const saved = localStorage.getItem(reasoningStorageKey);
@@ -31,6 +37,7 @@ function initialReasoningEffort(): ReasoningEffort {
 export default function App() {
   const [settings, setSettings] = useState<View | null>(null);
   const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [projects, setProjects] = useState<Project[]>([]);
   const [messages, setMessages] = useState<Record<string, UIMessage[]>>({});
   const [runs, setRuns] = useState<Record<string, RunView>>({});
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -43,9 +50,12 @@ export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(() => window.innerWidth >= 900);
   const [search, setSearch] = useState("");
   const [composer, setComposer] = useState("");
+  const [newConversationProjectID, setNewConversationProjectID] = useState("");
   const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort>(initialReasoningEffort);
   const [toast, setToast] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<Conversation | null>(null);
+  const [confirmDeleteProject, setConfirmDeleteProject] = useState<Project | null>(null);
+  const [projectDialog, setProjectDialog] = useState<ProjectDialogState | null>(null);
   const toastTimer = useRef<number | undefined>(undefined);
 
   const { theme, setTheme } = useTheme();
@@ -88,6 +98,7 @@ export default function App() {
         if (!alive) return;
         setSettings(data.settings);
         setConversations(data.conversations);
+        setProjects(data.projects);
         setConfigError(data.configError ?? "");
         const first = data.conversations[0];
         if (first) {
@@ -132,11 +143,12 @@ export default function App() {
       let conversationId = activeId;
       if (!conversationId) {
         try {
-          const conversation = await Mira.createConversation();
+          const conversation = await Mira.createConversation(newConversationProjectID);
           conversationId = conversation.id;
           setConversations((previous) => [conversation, ...previous]);
           setMessages((previous) => ({ ...previous, [conversation.id]: [] }));
           setActiveId(conversation.id);
+          setNewConversationProjectID("");
         } catch (error) {
           showToast(error instanceof Error ? error.message : "无法创建会话");
           return;
@@ -218,6 +230,7 @@ export default function App() {
       activeId,
       loadConversation,
       messages,
+      newConversationProjectID,
       reasoningEffort,
       refreshConversations,
       runningId,
@@ -227,18 +240,20 @@ export default function App() {
     ],
   );
 
-  function newChat() {
+  function newChat(projectID = "") {
     if (runningId) {
       showToast("正在生成回复，请先停止当前回复");
       return;
     }
     setActiveId(null);
     setComposer("");
+    setNewConversationProjectID(projectID);
     if (window.innerWidth < 900) setSidebarOpen(false);
   }
 
   async function selectConversation(id: string) {
     setActiveId(id);
+    setNewConversationProjectID("");
     if (window.innerWidth < 900) setSidebarOpen(false);
     if (!messages[id]) {
       try {
@@ -257,6 +272,65 @@ export default function App() {
       );
     } catch (error) {
       showToast(error instanceof Error ? error.message : "重命名失败");
+    }
+  }
+
+  async function createProject(name: string) {
+    const project = await Mira.createProject(name);
+    setProjects((previous) => [...previous, project]);
+    return project;
+  }
+
+  async function renameProject(id: string, name: string) {
+    await Mira.renameProject(id, name);
+    setProjects((previous) =>
+      previous.map((project) => (project.id === id ? { ...project, name } : project)),
+    );
+  }
+
+  async function moveConversation(id: string, projectID: string) {
+    try {
+      await Mira.moveConversation(id, projectID);
+      setConversations((previous) =>
+        previous.map((conversation) =>
+          conversation.id === id
+            ? { ...conversation, projectId: projectID || undefined }
+            : conversation,
+        ),
+      );
+      const destination = projects.find((project) => project.id === projectID);
+      showToast(destination ? `已移动到“${destination.name}”` : "已移动到未分类");
+      return true;
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "移动失败");
+      return false;
+    }
+  }
+
+  async function deleteProject() {
+    const target = confirmDeleteProject;
+    if (!target) return;
+    setConfirmDeleteProject(null);
+    try {
+      await Mira.deleteProject(target.id);
+      const removedIDs = new Set(
+        conversations
+          .filter((conversation) => conversation.projectId === target.id)
+          .map((conversation) => conversation.id),
+      );
+      const remaining = conversations.filter((conversation) => !removedIDs.has(conversation.id));
+      setProjects((previous) => previous.filter((project) => project.id !== target.id));
+      setConversations(remaining);
+      setMessages((previous) => removeRecords(previous, removedIDs));
+      setRuns((previous) => removeRecords(previous, removedIDs));
+      if (newConversationProjectID === target.id) setNewConversationProjectID("");
+      if (activeId && removedIDs.has(activeId)) {
+        const next = remaining[0];
+        setActiveId(next?.id ?? null);
+        if (next) await loadConversation(next.id);
+      }
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "删除项目失败");
     }
   }
 
@@ -344,16 +418,24 @@ export default function App() {
         />
         <Sidebar
           conversations={conversations}
+          projects={projects}
           activeId={activeId}
           search={search}
           onSearch={setSearch}
           onSelect={selectConversation}
-          onNew={newChat}
+          onNew={() => newChat()}
+          onNewInProject={(projectID) => newChat(projectID)}
           onRename={renameConversation}
           onDelete={(id) => {
             const conversation = conversations.find((item) => item.id === id);
             if (conversation) setConfirmDelete(conversation);
           }}
+          onMove={moveConversation}
+          onCreateProject={(afterMoveConversationID) =>
+            setProjectDialog({ mode: "create", afterMoveConversationID })
+          }
+          onRenameProject={(project) => setProjectDialog({ mode: "rename", project })}
+          onDeleteProject={setConfirmDeleteProject}
           onSettings={() => openSettings("general")}
         />
 
@@ -427,9 +509,53 @@ export default function App() {
         />
       )}
 
+      {confirmDeleteProject && (
+        <ConfirmDialog
+          title="删除项目？"
+          message={projectDeleteMessage(confirmDeleteProject, conversations)}
+          confirmLabel="删除项目"
+          onConfirm={deleteProject}
+          onClose={() => setConfirmDeleteProject(null)}
+        />
+      )}
+
+      {projectDialog && (
+        <ProjectDialog
+          title={projectDialog.mode === "create" ? "新建项目" : "重命名项目"}
+          initialName={projectDialog.mode === "rename" ? projectDialog.project.name : ""}
+          submitLabel={projectDialog.mode === "create" ? "创建" : "保存"}
+          onClose={() => setProjectDialog(null)}
+          onSubmit={async (name) => {
+            if (projectDialog.mode === "rename") {
+              await renameProject(projectDialog.project.id, name);
+            } else {
+              const project = await createProject(name);
+              if (projectDialog.afterMoveConversationID) {
+                await moveConversation(projectDialog.afterMoveConversationID, project.id);
+              }
+            }
+            setProjectDialog(null);
+          }}
+        />
+      )}
+
       {toast && <Toast>{toast}</Toast>}
     </div>
   );
+}
+
+function removeRecords<T>(records: Record<string, T>, removedIDs: Set<string>) {
+  const next = { ...records };
+  for (const id of removedIDs) delete next[id];
+  return next;
+}
+
+function projectDeleteMessage(project: Project, conversations: Conversation[]) {
+  const count = conversations.filter((item) => item.projectId === project.id).length;
+  if (count === 0) {
+    return `“${project.name}”将被删除。`;
+  }
+  return `“${project.name}”和其中的 ${count} 个对话及其消息将从本机永久删除。`;
 }
 
 function useTheme() {

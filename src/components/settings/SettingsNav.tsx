@@ -1,8 +1,8 @@
-import { Brain, Cpu, Info, Search, SlidersHorizontal, Sparkles } from "lucide-react";
+import { Brain, Cpu, Info, Palette, Search, Sparkles } from "lucide-react";
 import type { SettingsSection } from "../../lib/types";
 
 const sections = [
-  { value: "general", label: "常规", icon: SlidersHorizontal },
+  { value: "general", label: "外观", icon: Palette },
   { value: "personalization", label: "个性化", icon: Sparkles },
   { value: "memory", label: "记忆", icon: Brain },
   { value: "search", label: "搜索", icon: Search },

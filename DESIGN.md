@@ -110,9 +110,9 @@ shadows:
   level-4: "0 4px 10px rgba(0, 0, 0, 0.06), 0 16px 32px rgba(0, 0, 0, 0.12)"
   level-5: "0 2px 4px rgba(0, 0, 0, 0.05), 0 12px 24px rgba(0, 0, 0, 0.10), 0 32px 64px rgba(0, 0, 0, 0.18)"
 layout:
-  sidebar-width: 260px
-  sidebar-width-mobile: 280px
-  topbar-height: 52px
+  sidebar-width: 320px
+  sidebar-width-mobile: "min(320px, calc(100vw - 48px))"
+  topbar-height: 48px
   thread-max-width: 768px
   composer-max-width: 768px
   breakpoints:
@@ -209,9 +209,9 @@ dialogs, and toasts.
 
 **Key characteristics:**
 
-- A two-pane shell: a 260 px sidebar and a fluid main pane. Controls inside the
+- A two-pane shell: a 320 px sidebar and a fluid main pane. Controls inside the
   sidebar stay on the rail surface and only reveal a hover fill.
-- A 52 px top bar that holds the sidebar toggle and the current conversation
+- A 48 px top bar that holds the sidebar toggle and the current conversation
   title. It intentionally has no model, new-chat, or settings controls.
 - A 768 px reading column shared by the thread and composer.
 - User turns appear as right-aligned neutral bubbles; assistant turns are plain,
@@ -220,8 +220,8 @@ dialogs, and toasts.
   button. It is centered on a new chat and docked below the thread after the
   first message.
 - Monochrome light and dark themes driven by CSS custom properties.
-- A five-section settings dialog (常规 / 个性化 / 记忆 / 搜索 / 模型) with a
-  quiet rail that mirrors the main sidebar's hover language.
+- A six-section settings dialog (外观 / 个性化 / 记忆 / 搜索 / 模型 / 关于)
+  with a quiet rail that mirrors the main sidebar's hover language.
 - Motion is limited to state changes: typing dots, tool pulse, and dialog
   entrance. Reduced-motion preferences collapse all of it.
 
@@ -315,8 +315,8 @@ and on first launch.
 
 | Region         | Size       | Notes                                              |
 | -------------- | ---------- | -------------------------------------------------- |
-| Sidebar        | 260 px     | Fixed on desktop, overlay below 900 px             |
-| Top bar        | 52 px      | Sidebar toggle and conversation title              |
+| Sidebar        | 320 px     | Fixed on desktop, overlay below 900 px             |
+| Top bar        | 48 px      | Sidebar toggle and conversation title              |
 | Thread         | max 768 px | Centered in the main pane                          |
 | Composer       | max 768 px | Centered on new chat, docked at the bottom in a thread |
 | Reading gutter | 24 px      | 16 px below 640 px                                 |
@@ -344,7 +344,7 @@ Grouping is expressed through space, not boxes:
 | ----------- | ---------------------------------------------------------------------------- |
 | ≥ 1100 px   | Full width; conversation title visible                                       |
 | 900–1099 px | Thread title hidden; sidebar remains fixed                                   |
-| 640–899 px  | Sidebar becomes a 280 px overlay with a dimmed backdrop                      |
+| 640–899 px  | Sidebar becomes a 320 px overlay, at most 48 px from the viewport edge       |
 | < 640 px    | Settings sections become tabs; gutters shrink; user bubble may use 86% width |
 
 The new-chat greeting and composer sit at the upper golden-section line, around
@@ -355,8 +355,8 @@ the settings sidebar becomes a horizontal section tab row.
 ### Touch targets
 
 Icon buttons are 32 px square with an additional 2 px focus outline. Primary
-actions are 36–40 px tall. The conversation row is 36 px tall; on touch devices
-the rename and delete actions are always visible rather than hover-only.
+actions are 36–40 px tall. Project and conversation rows are 36 px tall; on touch
+devices their action buttons are always visible rather than hover-only.
 
 ## Elevation & Depth
 
@@ -392,15 +392,35 @@ pill. The assistant response stays square and unboxed.
 
 ### Sidebar
 
-A 260 px monochrome rail. The header contains only the “Mira” wordmark; the first
-action is “新对话”; search follows; conversation history is grouped by recency
-(“今天”, “昨天”, “前 7 天”, “更早”). Actions, the search field, and conversation
-rows stay on the rail surface until hover; the active conversation is marked by
-medium weight rather than a fill. Rename and delete actions appear on hover or
-focus.
+A 320 px monochrome rail. The first action is “新对话”; search follows. Project
+headings come next, sorted by creation time, with a quiet add button. Each project
+row can collapse and exposes two hover actions: new conversation and a project
+menu. Conversations outside projects follow directly in recency groups (“今天”,
+“昨天”, “前 7 天”, “更早”) without a redundant section label.
+
+Rows and the search field stay on the rail surface until hover or focus. The
+active conversation uses the subtle fill and medium weight; an active project only
+strengthens its label. Conversation rows expose one three-dot menu for 编辑标题,
+移动分类, and 删除. The move panel lists 未分类, every project with a check for
+the current destination, and 新建项目…. Project menus offer 重命名项目 and
+删除项目. Deleting a project explains how many conversations will be removed
+before confirmation.
+
+The wider rail gives long Chinese titles and project names enough room without
+wrapping. The project name is the only flexible cell; icons and action buttons
+stay fixed so hover does not change row height. Project conversation counts are
+not shown; the expanded list is the count.
 
 The footer contains a single compact “设置” action. There is no workspace block,
 account switcher, plan badge, or theme toggle in the rail.
+
+### Sidebar menus
+
+Menus float at elevation level 3 on the elevated surface with a hairline border
+and 12 px radius. Items are 36 px tall and use the 14 px body size. The menu flips
+above the trigger when there is not enough room below and clamps itself to an
+8 px viewport inset. Escape closes the menu and returns focus to the trigger;
+arrow keys, Home, and End move between enabled items.
 
 ### Top bar
 
@@ -460,17 +480,14 @@ prompt modules, not model parameters.
 ### Memory
 
 The memory page starts with three switch rows: 启用记忆, 自动摘要, and 历史搜索.
-The latter two are visually disabled when the master switch is off. A status strip
-on the subtle surface summarizes the current state in two lines: “摘要已就绪 /
-正在更新摘要… / 等待后台更新”, followed by the last update time and pending
-message count (for example “待处理 3 / 8 条消息”).
+The latter two are visually disabled when the master switch is off. Below them,
+one quiet status row combines the current state and update time or pending count
+(for example “摘要已就绪 · 更新于 11/11 10:00”); its refresh action sits at the
+right edge without a card or filled background.
 
-Two textareas follow, one for 手动记忆 (4000 characters) and one for 自动摘要
-(2000 characters). The manual section is presented as user-authored; the summary
-section is explicitly described as replaceable by the background task. Character
-counters are right-aligned and tabular. “立即更新摘要” and “清空记忆” sit in the
-status strip: the first is a secondary action with a refresh glyph, the second is
-a quiet danger text action. Clearing opens the shared confirmation dialog.
+One textarea follows for the current summary (2000 characters). It is explicitly
+described as replaceable by the background task. “清空记忆” is a quiet danger text
+action below the textarea. Clearing opens the shared confirmation dialog.
 
 If a background update wins the revision race, the page keeps the user's draft
 visible and shows an inline conflict message with a “载入最新记忆” text link.
@@ -505,11 +522,11 @@ are limited to a restrained GitHub-like palette in both themes.
 ### Dialogs
 
 Settings and destructive confirmation share a 16 px radius, hairline border, and
-level-5 shadow. Settings is 800 px wide and 620 px tall with a section sidebar
-for 常规 / 个性化 / 记忆 / 搜索 / 模型. The content pane has no duplicate title
-bar: the active sidebar row identifies the section. 常规 holds the display name
-and three-way theme choice; 个性化 holds the preference rows and custom
-instructions; 记忆 holds the memory switches, status strip, and two textareas;
+level-5 shadow. Settings is 800 px wide and 620 px tall with a 208 px section
+sidebar for 外观 / 个性化 / 记忆 / 搜索 / 模型 / 关于. The content pane has no duplicate
+title bar: the active sidebar row identifies the section. 外观 holds the three-way theme
+choice; 个性化 holds the display name, preference rows, and custom instructions;
+记忆 holds the memory switches, quiet status row, and summary textarea;
 搜索 holds the default-on web search switch, DuckDuckGo / Tavily choice, and
 masked Tavily key; 模型 holds the URL, model, protocol, and masked API key. Each
 key field shows its storage source in secondary text: system keychain,
@@ -518,7 +535,10 @@ environment variable, session-only fallback, or not saved. Keys backed by
 unavailable, an inline warning explains that a newly entered key lasts only for
 the current session. Each section uses one primary information group instead of
 repeating card borders and explanatory copy. Confirmation is 430 px wide with a
-danger icon and a two-button footer.
+danger icon and a two-button footer. 关于 shows the version and update controls
+without a logo card or duplicate section heading. New-project and rename dialogs
+contain one title, one input, and footer actions; there is no description, visible
+field label, or close glyph.
 
 ### Toast
 

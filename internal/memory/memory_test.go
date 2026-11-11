@@ -139,14 +139,13 @@ func TestUserFileRoundTripAndRevisionConflict(t *testing.T) {
 		t.Fatal(err)
 	}
 	view, err := manager.Save(SaveInput{
-		Manual:   "我喜欢简短回答。",
 		Summary:  "## 用户画像\n- 后端工程师",
 		Revision: 0,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if view.Revision != 1 || view.Manual != "我喜欢简短回答。" {
+	if view.Revision != 1 {
 		t.Fatalf("saved view = %+v", view)
 	}
 
@@ -155,8 +154,7 @@ func TestUserFileRoundTripAndRevisionConflict(t *testing.T) {
 		t.Fatal(err)
 	}
 	reloadedView := reloaded.Get()
-	if reloadedView.Manual != view.Manual || reloadedView.Summary != view.Summary ||
-		reloadedView.Revision != view.Revision {
+	if reloadedView.Summary != view.Summary || reloadedView.Revision != view.Revision {
 		t.Fatalf("reloaded view = %+v", reloadedView)
 	}
 
@@ -164,14 +162,43 @@ func TestUserFileRoundTripAndRevisionConflict(t *testing.T) {
 		t.Fatal("stale revision should be rejected")
 	}
 	refreshed := reloaded.Get()
-	if refreshed.Manual != view.Manual || refreshed.Summary != view.Summary {
+	if refreshed.Summary != view.Summary {
 		t.Fatalf("conflict changed memory: %+v", refreshed)
 	}
 }
 
 func TestUserFileRejectsMissingMarkers(t *testing.T) {
-	if _, _, err := parseUserFile("# 用户记忆\n没有标记"); err == nil {
+	if _, err := parseUserFile("# 用户记忆\n没有标记"); err == nil {
 		t.Fatal("expected missing markers to be rejected")
+	}
+}
+
+func TestLegacyManualSectionIsIgnoredAndRemovedOnWrite(t *testing.T) {
+	legacy := `# 用户记忆
+
+## 手动记忆
+
+<!-- MIRA:MANUAL:START -->
+旧的手动记忆
+<!-- MIRA:MANUAL:END -->
+
+## 自动摘要
+
+<!-- MIRA:AUTO:START -->
+## 用户画像
+- 后端工程师
+<!-- MIRA:AUTO:END -->
+`
+	summary, err := parseUserFile(legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if summary != "## 用户画像\n- 后端工程师" {
+		t.Fatalf("summary = %q", summary)
+	}
+	rendered := renderUserFile(summary)
+	if strings.Contains(rendered, "MIRA:MANUAL") || strings.Contains(rendered, "旧的手动记忆") {
+		t.Fatalf("legacy manual memory was retained: %s", rendered)
 	}
 }
 

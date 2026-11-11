@@ -4,6 +4,7 @@ export { Field } from "./Field";
 export { IconButton } from "./IconButton";
 export { Modal } from "./Modal";
 export { Notice } from "./Notice";
+export { PopupMenu } from "./PopupMenu";
 export { SegmentedControl } from "./SegmentedControl";
 export { Switch } from "./Switch";
 export { Toast } from "./Toast";

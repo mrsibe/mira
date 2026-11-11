@@ -1,5 +1,5 @@
-// Package memory persists the editable user memory and searches past chats
-// with a lightweight in-memory BM25 index.
+// Package memory persists the automatic user-memory summary and searches past
+// chats with a lightweight in-memory BM25 index.
 package memory
 
 import (
@@ -23,21 +23,17 @@ const (
 	SummaryThreshold   = 8
 	initialTurnLimit   = 40
 	maxTranscriptRunes = 60_000
-	maxManualRunes     = 4000
 	maxSummaryRunes    = 2000
 	summaryTimeout     = 90 * time.Second
 
-	manualStart = "<!-- MIRA:MANUAL:START -->"
-	manualEnd   = "<!-- MIRA:MANUAL:END -->"
-	autoStart   = "<!-- MIRA:AUTO:START -->"
-	autoEnd     = "<!-- MIRA:AUTO:END -->"
+	autoStart = "<!-- MIRA:AUTO:START -->"
+	autoEnd   = "<!-- MIRA:AUTO:END -->"
 )
 
 var errSummaryRunning = errors.New("记忆摘要正在生成")
 
 // View is the frontend-safe memory snapshot.
 type View struct {
-	Manual           string `json:"manual"`
 	Summary          string `json:"summary"`
 	Revision         int64  `json:"revision"`
 	UpdatedAt        string `json:"updatedAt,omitempty"`
@@ -47,9 +43,8 @@ type View struct {
 	LastError        string `json:"lastError,omitempty"`
 }
 
-// SaveInput updates the editable memory sections.
+// SaveInput updates the editable automatic summary.
 type SaveInput struct {
-	Manual   string `json:"manual"`
 	Summary  string `json:"summary"`
 	Revision int64  `json:"revision"`
 }
@@ -65,7 +60,6 @@ type Manager struct {
 	statePath  string
 	source     indexSource
 	complete   CompleteFunc
-	manual     string
 	auto       string
 	state      persistedState
 	fileErr    error
@@ -106,15 +100,14 @@ func (m *Manager) load() error {
 	data, err := os.ReadFile(m.userPath)
 	switch {
 	case err == nil:
-		manual, summary, parseErr := parseUserFile(string(data))
+		summary, parseErr := parseUserFile(string(data))
 		if parseErr != nil {
 			m.fileErr = parseErr
 		} else {
-			m.manual = manual
 			m.auto = summary
 		}
 	case errors.Is(err, os.ErrNotExist):
-		if err := m.writeUserFileLocked(m.manual, m.auto); err != nil {
+		if err := m.writeUserFileLocked(m.auto); err != nil {
 			return err
 		}
 	default:
@@ -140,32 +133,27 @@ func (m *Manager) Get() View {
 	return m.viewLocked()
 }
 
-// Prompt returns the manual and automatic memory injected into the system prompt.
-func (m *Manager) Prompt() (string, string) {
+// Prompt returns the automatic memory injected into the system prompt.
+func (m *Manager) Prompt() string {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return m.manual, m.auto
+	return m.auto
 }
 
-// Save updates both memory sections when the caller's revision is current.
+// Save updates the automatic summary when the caller's revision is current.
 func (m *Manager) Save(input SaveInput) (View, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if input.Revision != m.state.Revision {
 		return m.viewLocked(), errors.New("记忆已在后台更新，请刷新后重试")
 	}
-	manual := sanitizeMarkerText(strings.TrimSpace(input.Manual))
 	summary := sanitizeMarkerText(strings.TrimSpace(input.Summary))
-	if len([]rune(manual)) > maxManualRunes {
-		return m.viewLocked(), fmt.Errorf("手动记忆最多 %d 个字符", maxManualRunes)
-	}
 	if len([]rune(summary)) > maxSummaryRunes {
 		return m.viewLocked(), fmt.Errorf("自动摘要最多 %d 个字符", maxSummaryRunes)
 	}
-	if err := m.writeUserFileLocked(manual, summary); err != nil {
+	if err := m.writeUserFileLocked(summary); err != nil {
 		return m.viewLocked(), err
 	}
-	m.manual = manual
 	m.auto = summary
 	m.state.Revision++
 	m.state.SummaryUpdatedAt = time.Now().UTC()
@@ -179,11 +167,11 @@ func (m *Manager) Save(input SaveInput) (View, error) {
 
 // Regenerate synchronously rebuilds the automatic summary.
 func (m *Manager) Regenerate(ctx context.Context, settings config.Settings) (View, error) {
-	generation, manual, summary, lastSummary, err := m.beginSummary()
+	generation, summary, lastSummary, err := m.beginSummary()
 	if err != nil {
 		return m.Get(), err
 	}
-	result, latest, err := m.generate(ctx, settings, manual, summary, lastSummary)
+	result, latest, err := m.generate(ctx, settings, summary, lastSummary)
 	m.finishSummary(generation, result, latest, err)
 	if err != nil {
 		return m.Get(), err
@@ -191,14 +179,13 @@ func (m *Manager) Regenerate(ctx context.Context, settings config.Settings) (Vie
 	return m.Get(), nil
 }
 
-// Clear removes both memory sections.
+// Clear removes the automatic summary.
 func (m *Manager) Clear() (View, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if err := m.writeUserFileLocked("", ""); err != nil {
+	if err := m.writeUserFileLocked(""); err != nil {
 		return m.viewLocked(), err
 	}
-	m.manual = ""
 	m.auto = ""
 	m.generation++
 	m.state.LastSummarizedAt = time.Now().UTC()
@@ -294,21 +281,21 @@ func (m *Manager) startSummary(settings config.Settings, initial bool) {
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), summaryTimeout)
 		defer cancel()
-		manual, summary := m.Prompt()
+		summary := m.Prompt()
 		lastSummary := m.lastSummarizedAt()
-		result, latest, err := m.generate(ctx, settings, manual, summary, lastSummary)
+		result, latest, err := m.generate(ctx, settings, summary, lastSummary)
 		m.finishSummary(generation, result, latest, err)
 	}()
 }
 
-func (m *Manager) beginSummary() (int64, string, string, time.Time, error) {
+func (m *Manager) beginSummary() (int64, string, time.Time, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.running {
-		return 0, "", "", time.Time{}, errSummaryRunning
+		return 0, "", time.Time{}, errSummaryRunning
 	}
 	m.running = true
-	return m.generation, m.manual, m.auto, m.state.LastSummarizedAt, nil
+	return m.generation, m.auto, m.state.LastSummarizedAt, nil
 }
 
 func (m *Manager) finishSummary(generation int64, summary string, latest time.Time, err error) {
@@ -324,7 +311,7 @@ func (m *Manager) finishSummary(generation int64, summary string, latest time.Ti
 		return
 	}
 	if summary != "" {
-		if writeErr := m.writeUserFileLocked(m.manual, summary); writeErr != nil {
+		if writeErr := m.writeUserFileLocked(summary); writeErr != nil {
 			m.state.LastError = writeErr.Error()
 			_ = m.writeStateLocked()
 			return
@@ -349,7 +336,6 @@ func (m *Manager) finishSummary(generation int64, summary string, latest time.Ti
 func (m *Manager) generate(
 	ctx context.Context,
 	settings config.Settings,
-	manual string,
 	existingSummary string,
 	lastSummary time.Time,
 ) (string, time.Time, error) {
@@ -379,15 +365,11 @@ func (m *Manager) generate(
 %s
 </existing_memory>
 
-<manual_memory readonly="true">
-%s
-</manual_memory>
-
 <new_transcript>
 %s
 </new_transcript>
 
-请输出更新后的自动摘要。`, existingSummary, manual, transcript)
+请输出更新后的自动摘要。`, existingSummary, transcript)
 	result, err := m.complete(ctx, settings, systemPrompt, userPrompt)
 	if err != nil {
 		return "", time.Time{}, fmt.Errorf("生成记忆摘要: %w", err)
@@ -505,7 +487,6 @@ func (m *Manager) viewLocked() View {
 		updatedAt = m.state.SummaryUpdatedAt.UTC().Format(time.RFC3339)
 	}
 	return View{
-		Manual:           m.manual,
 		Summary:          m.auto,
 		Revision:         m.state.Revision,
 		UpdatedAt:        updatedAt,
@@ -522,9 +503,9 @@ func (m *Manager) lastSummarizedAt() time.Time {
 	return m.state.LastSummarizedAt
 }
 
-func (m *Manager) writeUserFileLocked(manual, summary string) error {
+func (m *Manager) writeUserFileLocked(summary string) error {
 	m.fileErr = nil
-	return writeFileAtomic(m.userPath, renderUserFile(manual, summary))
+	return writeFileAtomic(m.userPath, renderUserFile(summary))
 }
 
 func (m *Manager) writeStateLocked() error {
@@ -536,33 +517,23 @@ func (m *Manager) writeStateLocked() error {
 	return writeFileAtomic(m.statePath, string(data))
 }
 
-func renderUserFile(manual, summary string) string {
+func renderUserFile(summary string) string {
 	return fmt.Sprintf(`# 用户记忆
-
-## 手动记忆
-
-%s
-%s
-%s
 
 ## 自动摘要
 
 %s
 %s
 %s
-`, manualStart, manual, manualEnd, autoStart, summary, autoEnd)
+`, autoStart, summary, autoEnd)
 }
 
-func parseUserFile(content string) (string, string, error) {
-	manual, err := section(content, manualStart, manualEnd)
-	if err != nil {
-		return "", "", err
-	}
+func parseUserFile(content string) (string, error) {
 	summary, err := section(content, autoStart, autoEnd)
 	if err != nil {
-		return "", "", err
+		return "", err
 	}
-	return strings.TrimSpace(manual), strings.TrimSpace(summary), nil
+	return strings.TrimSpace(summary), nil
 }
 
 func section(content, start, end string) (string, error) {
@@ -579,7 +550,7 @@ func section(content, start, end string) (string, error) {
 }
 
 func sanitizeMarkerText(value string) string {
-	for _, marker := range []string{manualStart, manualEnd, autoStart, autoEnd} {
+	for _, marker := range []string{autoStart, autoEnd} {
 		value = strings.ReplaceAll(value, marker, "")
 	}
 	return value

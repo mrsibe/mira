@@ -26,12 +26,15 @@ Go↔TypeScript 桥接使用 [MyGo](https://github.com/egoist/mygo)，聊天运�
   搜索默认开启，可在设置中关闭。
 - 系统提示词按模块组装：核心规则 → 表达偏好 → 自定义指令 → 长期记忆 →
   工具规则。表达偏好和自定义指令都可以在“个性化”中调整。
-- 长期记忆由两部分组成：可手动编辑的 `USER.md` 手动区块，以及每累计 8 条
-  用户消息在后台重新生成的自动摘要。首次启用时会回看最近 40 个用户回合。
+- 长期记忆由自动摘要组成：每累计 8 条用户消息在后台重新整理一次，首次启用
+  时会回看最近 40 个用户回合。
 - `search_memory` 工具用 BM25 搜索历史会话，默认排除当前会话；索引在内存中
   惰性构建，会话变化后自动重建。
 - 流式输出、停止生成、部分回答持久化。
-- 本地会话列表、搜索、按时间分组、重命名与删除。
+- 本地会话列表、搜索、项目分类与按时间分组；对话可通过三点菜单重命名、
+  移动分类或删除。
+- 项目支持新建、重命名和删除。项目按创建时间排列；删除项目会同时删除其中
+  的全部对话，未归入项目的对话继续按时间分组显示。
 - 模型与搜索 API Key 保存在系统钥匙串，前端只能看到“是否已配置”和存储来源；
   `config.json` 不包含密钥。
 - 本地无鉴权服务（如 Ollama、LM Studio）无需 API Key 即可使用。
@@ -63,7 +66,7 @@ bun install
 bun run dev
 ```
 
-首次启动后，点击侧栏底部的“设置”。设置分为常规 / 个性化 / 记忆 / 搜索 /
+首次启动后，点击侧栏底部的“设置”。设置分为外观 / 个性化 / 记忆 / 搜索 /
 模型 / 关于六个栏目，在“模型”中填写：
 
 - **Base URL**：例如 `https://api.openai.com/v1`
@@ -75,10 +78,10 @@ API Key 使用 macOS Keychain、Windows Credential Manager 或 Linux Secret
 Service。系统钥匙串不可用时不会退回明文文件，密钥只保留在本次会话，重启后
 需要重新输入；开发模式和安装后的应用使用不同的钥匙串条目。
 
-“常规”中可以填写新会话使用的称呼，并切换外观（浅色 / 深色 / 跟随系统）。
-称呼留空时首屏只显示“今天聊点什么？”。“个性化”可以调整回答风格、
-亲切程度、热情程度、Emoji 频率，并填写最多 5000 字的自定义指令。
-外观切换会同步网页、原生窗口和 Windows 窗口控制按钮；“关于”中可检查更新。
+“外观”可以切换浅色 / 深色 / 跟随系统，并同步网页、原生窗口和 Windows
+窗口控制按钮。“个性化”可以填写新会话使用的称呼，调整回答风格、亲切程度、
+热情程度、Emoji 频率，并填写最多 5000 字的自定义指令。称呼留空时首屏只
+显示“今天聊点什么？”。“关于”中可检查更新。
 
 “记忆”栏目默认开启全部三项：
 
@@ -87,8 +90,8 @@ Service。系统钥匙串不可用时不会退回明文文件，密钥只保留�
   摘要；关闭后不再生成或注入自动摘要区块。
 - **历史搜索**：允许 Agent 在其他历史会话中做 BM25 检索。
 
-手动记忆和自动摘要都可以直接编辑；“立即更新摘要”会同步重新生成摘要，
-“清空记忆”会删除两个区块。后端使用 revision 防止后台更新覆盖尚未保存的编辑。
+自动摘要可以直接编辑；“更新摘要”会同步重新生成，“清空记忆”会删除摘要。
+后端使用 revision 防止后台更新覆盖尚未保存的编辑。
 
 “搜索”栏目默认开启联网搜索：
 
@@ -139,14 +142,16 @@ GOPROXY=https://proxy.golang.org,direct go mod download
 config.json                  # 模型与界面设置，不含密钥（权限 0600）
 conversations/index.json     # 会话索引
 conversations/<id>.jsonl     # 每个会话的消息、用量
-memory/USER.md               # 手动记忆与自动摘要（带分区标记）
+conversations/projects.json  # 项目分类，按创建时间排列
+memory/USER.md               # 自动记忆摘要（带分区标记）
 memory/state.json            # 摘要时间、待处理轮数与 revision
 window-state.json            # 窗口大小与位置
 updater.json                 # 自动检查设置、上次检查时间与跳过的版本
 ```
 
-会话文件采用 JSONL：第一行是头部，其后每行是一个消息或 usage 记录。索引丢失
-或损坏时会从 `.jsonl` 文件自动重建。
+会话文件采用 JSONL：第一行是头部，其后每行是一个消息、usage 或项目移动记录。
+索引丢失或损坏时会从 `.jsonl` 文件自动重建项目归属。`projects.json` 使用独立
+版本号，缺失时按空项目列表处理。
 
 `config.json` 中与搜索相关的字段：
 
@@ -166,9 +171,10 @@ updater.json                 # 自动检查设置、上次检查时间与跳过�
 模型 API Key 和 Tavily API Key 不写入 `config.json`。如果 Tavily 密钥只存在于
 本次会话，重启后会自动回退到 DuckDuckGo。
 
-`USER.md` 使用 `MIRA:MANUAL` 与 `MIRA:AUTO` 标记分隔两个区块；自动摘要更新只会
-替换 AUTO 区块，不会覆盖手动内容。`state.json` 记录 `pendingUserTurns`、
-`lastSummarizedAt`、`summaryUpdatedAt`、`lastError` 和 `revision`。
+`USER.md` 使用 `MIRA:AUTO` 标记保存自动摘要。旧版本写入的 `MIRA:MANUAL` 区块
+会被忽略，并在下一次保存或更新摘要时移除。`state.json` 记录
+`pendingUserTurns`、`lastSummarizedAt`、`summaryUpdatedAt`、`lastError` 和
+`revision`。
 
 ## 常用命令
 
@@ -250,7 +256,8 @@ main.go
         └── internal/chat.Engine      # 构造 GOAT Agent 与工具
 
 src/App.tsx
-  ├── components/Sidebar.tsx         # 会话列表与整行切换
+  ├── components/Sidebar.tsx         # 项目 / 时间分组的会话列表与整行切换
+  ├── components/SidebarMenus.tsx    # 对话与项目三点菜单
   ├── components/Thread.tsx          # 会话滚动容器
   │     └── components/thread/       # 消息、思考、计划、工具卡
   ├── components/Composer.tsx
@@ -313,8 +320,8 @@ bun run build
 
 Go 测试覆盖设置持久化、钥匙串读写与删除、环境变量优先级、钥匙串不可用时的
 会话回退、密钥不落盘、提示词模块顺序、BM25 中英文检索与当前会话排除、USER.md
-分区与 revision 冲突、摘要阈值与失败保留旧摘要、首次 40 回合回填、搜索
-Provider 解析与降级、工具注册、会话增删改查、流式事件、取消后的部分回答
-持久化，以及单 run 锁。
+兼容与 revision 冲突、摘要阈值与失败保留旧摘要、首次 40 回合回填、搜索
+Provider 解析与降级、工具注册、会话增删改查、项目分组与迁移、项目级联删除、
+流式事件、取消后的部分回答持久化，以及单 run 锁。
 前端依赖真实的 MyGo 运行时，因此视觉与端到端行为需通过 `bun run dev` 或
 构建后的桌面应用确认。

@@ -43,7 +43,7 @@ const MaxSteps = 64
 
 // Memory supplies prompt context and historical search to the agent.
 type Memory interface {
-	Prompt() (string, string)
+	Prompt() string
 	Search(context.Context, string, int, string) ([]memory.SearchResult, error)
 }
 
@@ -107,17 +107,16 @@ func newModel(settings config.Settings) (ai.Model, error) {
 
 func (e *Engine) toolsFor(settings config.Settings, conversationID string) ([]agent.Tool, string) {
 	tools := append([]agent.Tool(nil), e.Tools...)
-	manualMemory, autoMemory := "", ""
+	autoMemory := ""
 	if settings.MemoryEnabled && e.Memory != nil {
-		manualMemory, autoMemory = e.Memory.Prompt()
+		autoMemory = e.Memory.Prompt()
 		if !settings.MemorySummaryEnabled {
 			autoMemory = ""
 		}
 	}
 	systemPrompt := prompt.Build(prompt.Options{
-		Settings:     settings,
-		ManualMemory: manualMemory,
-		AutoMemory:   autoMemory,
+		Settings:   settings,
+		AutoMemory: autoMemory,
 	})
 	if settings.WebSearchEnabled {
 		provider := search.NewProvider(settings.SearchProvider, settings.TavilyAPIKey, nil)

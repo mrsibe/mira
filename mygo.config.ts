@@ -3,7 +3,7 @@ import { defineConfig } from "mygo-cli";
 export default defineConfig({
   name: "Mira",
   identifier: "com.mrsibe.mira",
-  version: "0.2.0",
+  version: "0.3.0",
   updates: {
     publicKey: "2cdI3cyRcrHa2YNZUIsojIgAhXutvNa11Cj/4OhMnT8=",
     github: "mrsibe/mira",

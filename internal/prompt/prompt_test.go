@@ -19,8 +19,7 @@ func TestBuildIncludesModulesInOrder(t *testing.T) {
 			Emoji:               config.EmojiSparing,
 			CustomInstructions:  "称呼我为小林。",
 		},
-		ManualMemory: "我是一名后端工程师。",
-		AutoMemory:   "## 当前项目与目标\n- Mira",
+		AutoMemory: "## 当前项目与目标\n- Mira",
 	})
 
 	markers := []string{
@@ -29,8 +28,6 @@ func TestBuildIncludesModulesInOrder(t *testing.T) {
 		"## 用户自定义指令",
 		"称呼我为小林。",
 		"## 长期记忆",
-		"<manual_memory>",
-		"我是一名后端工程师。",
 		"<auto_memory>",
 		"## 当前项目与目标",
 		"## 工具",

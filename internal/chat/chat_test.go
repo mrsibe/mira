@@ -22,12 +22,11 @@ type stubSearchProvider struct {
 }
 
 type stubMemory struct {
-	manual  string
 	summary string
 }
 
-func (m stubMemory) Prompt() (string, string) {
-	return m.manual, m.summary
+func (m stubMemory) Prompt() string {
+	return m.summary
 }
 
 func (m stubMemory) Search(
@@ -93,7 +92,7 @@ func TestNewEngineIncludesPlanTool(t *testing.T) {
 func TestToolsForInjectsMemoryAccordingToSettings(t *testing.T) {
 	engine := &Engine{
 		Tools:  []agent.Tool{currentTimeTool(), updatePlanTool()},
-		Memory: stubMemory{manual: "手动记忆内容", summary: "自动摘要内容"},
+		Memory: stubMemory{summary: "自动摘要内容"},
 	}
 	settings := config.Settings{
 		MemoryEnabled:        true,
@@ -101,7 +100,7 @@ func TestToolsForInjectsMemoryAccordingToSettings(t *testing.T) {
 		MemorySearchEnabled:  true,
 	}
 	tools, prompt := engine.toolsFor(settings, "current")
-	if !strings.Contains(prompt, "手动记忆内容") || !strings.Contains(prompt, "自动摘要内容") {
+	if !strings.Contains(prompt, "自动摘要内容") {
 		t.Fatalf("memory was not injected: %q", prompt)
 	}
 	if !hasTool(tools, "search_memory") {
@@ -110,9 +109,6 @@ func TestToolsForInjectsMemoryAccordingToSettings(t *testing.T) {
 
 	settings.MemorySummaryEnabled = false
 	_, prompt = engine.toolsFor(settings, "current")
-	if !strings.Contains(prompt, "手动记忆内容") {
-		t.Fatal("manual memory should still be injected")
-	}
 	if strings.Contains(prompt, "自动摘要内容") {
 		t.Fatal("automatic summary should be omitted when its switch is off")
 	}
@@ -125,7 +121,7 @@ func TestToolsForInjectsMemoryAccordingToSettings(t *testing.T) {
 
 	settings.MemoryEnabled = false
 	_, prompt = engine.toolsFor(settings, "current")
-	if strings.Contains(prompt, "手动记忆内容") || strings.Contains(prompt, "自动摘要内容") {
+	if strings.Contains(prompt, "自动摘要内容") {
 		t.Fatal("memory should not be injected when memory is disabled")
 	}
 }

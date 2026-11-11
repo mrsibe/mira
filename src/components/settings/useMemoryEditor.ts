@@ -10,7 +10,6 @@ export type MemoryEditor = ReturnType<typeof useMemoryEditor>;
 
 export function useMemoryEditor({ active, onError }: MemoryEditorOptions) {
   const [memory, setMemory] = useState<MemoryView | null>(null);
-  const [manualDraft, setManualDraft] = useState("");
   const [summaryDraft, setSummaryDraft] = useState("");
   const [dirty, setDirty] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -22,7 +21,6 @@ export function useMemoryEditor({ active, onError }: MemoryEditorOptions) {
   const adopt = useCallback((next: MemoryView, forceDraft = false) => {
     setMemory(next);
     if (forceDraft || !dirtyRef.current) {
-      setManualDraft(next.manual);
       setSummaryDraft(next.summary);
       revision.current = next.revision;
       dirtyRef.current = false;
@@ -66,7 +64,6 @@ export function useMemoryEditor({ active, onError }: MemoryEditorOptions) {
   const saveDraft = useCallback(async () => {
     try {
       const saved = await Mira.saveMemory({
-        manual: manualDraft,
         summary: summaryDraft,
         revision: revision.current,
       });
@@ -76,7 +73,7 @@ export function useMemoryEditor({ active, onError }: MemoryEditorOptions) {
       setConflict(isRevisionConflict(error));
       throw error;
     }
-  }, [adopt, manualDraft, summaryDraft]);
+  }, [adopt, summaryDraft]);
 
   const regenerate = useCallback(async () => {
     onError("");
@@ -122,13 +119,11 @@ export function useMemoryEditor({ active, onError }: MemoryEditorOptions) {
 
   return {
     memory,
-    manualDraft,
     summaryDraft,
     dirty,
     loading,
     action,
     conflict,
-    setManualDraft,
     setSummaryDraft,
     markDirty,
     saveDraft,

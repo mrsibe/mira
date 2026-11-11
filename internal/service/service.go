@@ -56,6 +56,7 @@ func New(
 type Bootstrap struct {
 	Settings             config.View          `json:"settings"`
 	Conversations        []store.Conversation `json:"conversations"`
+	Projects             []store.Project      `json:"projects"`
 	ActiveConversationID string               `json:"activeConversationId,omitempty"`
 	Version              string               `json:"version"`
 	ConfigError          string               `json:"configError,omitempty"`
@@ -87,6 +88,7 @@ func (s *Service) Bootstrap() Bootstrap {
 	result := Bootstrap{
 		Settings:      s.cfg.View(),
 		Conversations: s.store.List(),
+		Projects:      s.store.ListProjects(),
 		Version:       mygo.App.Version(),
 	}
 	if err := s.cfg.LoadError(); err != nil {
@@ -105,9 +107,60 @@ func (s *Service) ListConversations() []store.Conversation {
 	return s.store.List()
 }
 
+// ListProjects returns project categories in creation order.
+func (s *Service) ListProjects() []store.Project {
+	return s.store.ListProjects()
+}
+
+// CreateProject adds an empty project category.
+func (s *Service) CreateProject(name string) (store.Project, error) {
+	return s.store.CreateProject(name)
+}
+
+// RenameProject changes a project category's name.
+func (s *Service) RenameProject(id, name string) error {
+	return s.store.RenameProject(id, name)
+}
+
+// DeleteProject removes a project and all conversations in it.
+func (s *Service) DeleteProject(id string) error {
+	s.mu.Lock()
+	activeID := ""
+	if s.active != nil {
+		activeID = s.active.conversationID
+	}
+	s.mu.Unlock()
+	if activeID != "" {
+		for _, conversation := range s.store.List() {
+			if conversation.ID == activeID && conversation.ProjectID == id {
+				return errors.New("正在生成回复，无法删除该项目")
+			}
+		}
+	}
+	hadConversations := false
+	for _, conversation := range s.store.List() {
+		if conversation.ProjectID == id {
+			hadConversations = true
+			break
+		}
+	}
+	if err := s.store.DeleteProject(id); err != nil {
+		return err
+	}
+	if hadConversations && s.memory != nil {
+		s.memory.MarkDirty()
+	}
+	return nil
+}
+
 // CreateConversation starts a new thread.
-func (s *Service) CreateConversation() (store.Conversation, error) {
-	return s.store.Create()
+func (s *Service) CreateConversation(projectID string) (store.Conversation, error) {
+	return s.store.CreateInProject(projectID)
+}
+
+// MoveConversation changes a conversation's project category.
+func (s *Service) MoveConversation(id, projectID string) error {
+	return s.store.MoveConversation(id, projectID)
 }
 
 // GetConversation loads a thread and its messages.
@@ -174,7 +227,7 @@ func (s *Service) GetMemory() memory.View {
 	return s.memory.Get()
 }
 
-// SaveMemory updates the manual and automatic memory sections.
+// SaveMemory updates the automatic memory summary.
 func (s *Service) SaveMemory(input memory.SaveInput) (memory.View, error) {
 	if s.memory == nil {
 		return memory.View{}, errors.New("记忆功能未初始化")
@@ -192,7 +245,7 @@ func (s *Service) RegenerateMemory() (memory.View, error) {
 	return s.memory.Regenerate(ctx, s.cfg.Settings())
 }
 
-// ClearMemory removes both memory sections.
+// ClearMemory removes the automatic memory summary.
 func (s *Service) ClearMemory() (memory.View, error) {
 	if s.memory == nil {
 		return memory.View{}, errors.New("记忆功能未初始化")

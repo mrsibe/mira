@@ -120,12 +120,7 @@ export function SettingsDialog({
           </h2>
           <div className="settings-content">
             {section === "general" && (
-              <GeneralSettings
-                draft={draft}
-                setField={setField}
-                theme={theme}
-                onThemeChange={onThemeChange}
-              />
+              <GeneralSettings theme={theme} onThemeChange={onThemeChange} />
             )}
             {section === "personalization" && (
               <PersonalizationSettings draft={draft} setField={setField} />

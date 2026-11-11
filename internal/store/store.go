@@ -20,9 +20,12 @@ import (
 )
 
 const (
-	fileVersion  = 1
-	indexVersion = 1
-	defaultTitle = "新对话"
+	fileVersion        = 1
+	indexVersion       = 1
+	projectFileVersion = 1
+	defaultTitle       = "新对话"
+	unfiledProjectName = "未分类"
+	maxProjectName     = 48
 )
 
 // Conversation is the metadata shown in the sidebar.
@@ -30,9 +33,17 @@ type Conversation struct {
 	ID           string    `json:"id"`
 	Title        string    `json:"title"`
 	Preview      string    `json:"preview"`
+	ProjectID    string    `json:"projectId,omitempty"`
 	CreatedAt    time.Time `json:"createdAt"`
 	UpdatedAt    time.Time `json:"updatedAt"`
 	MessageCount int       `json:"messageCount"`
+}
+
+// Project groups conversations in the sidebar.
+type Project struct {
+	ID        string    `json:"id"`
+	Name      string    `json:"name"`
+	CreatedAt time.Time `json:"createdAt"`
 }
 
 type indexFile struct {
@@ -40,16 +51,23 @@ type indexFile struct {
 	Conversations []Conversation `json:"conversations"`
 }
 
+type projectsFile struct {
+	Version  int       `json:"version"`
+	Projects []Project `json:"projects"`
+}
+
 type header struct {
 	Type      string    `json:"type"`
 	Version   int       `json:"version"`
 	ID        string    `json:"id"`
+	ProjectID string    `json:"projectId,omitempty"`
 	CreatedAt time.Time `json:"createdAt"`
 }
 
 type entry struct {
 	Type               string      `json:"type"`
 	Timestamp          time.Time   `json:"timestamp"`
+	ProjectID          string      `json:"projectId,omitempty"`
 	Message            *ai.Message `json:"message,omitempty"`
 	Usage              *ai.Usage   `json:"usage,omitempty"`
 	ThinkingDurationMS int64       `json:"thinkingDurationMs,omitempty"`
@@ -65,10 +83,12 @@ type MessageRecord struct {
 
 // Store serializes access to the index and conversation files.
 type Store struct {
-	mu      sync.Mutex
-	dir     string
-	index   string
-	entries []Conversation
+	mu           sync.Mutex
+	dir          string
+	index        string
+	projectsPath string
+	entries      []Conversation
+	projects     []Project
 }
 
 // Open loads the index, rebuilding it from conversation files when missing or
@@ -77,7 +97,16 @@ func Open(dir string) (*Store, error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, fmt.Errorf("create conversation directory: %w", err)
 	}
-	s := &Store{dir: dir, index: filepath.Join(dir, "index.json")}
+	s := &Store{
+		dir:          dir,
+		index:        filepath.Join(dir, "index.json"),
+		projectsPath: filepath.Join(dir, "projects.json"),
+	}
+	projects, err := s.readProjects()
+	if err != nil {
+		return nil, err
+	}
+	s.projects = projects
 	entries, err := s.readIndex()
 	if err != nil || entries == nil {
 		entries, err = s.rebuildIndex()
@@ -103,11 +132,106 @@ func (s *Store) List() []Conversation {
 	return result
 }
 
-// Create adds an empty conversation.
-func (s *Store) Create() (Conversation, error) {
+// ListProjects returns projects in creation order.
+func (s *Store) ListProjects() []Project {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	result := append([]Project(nil), s.projects...)
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].CreatedAt.Before(result[j].CreatedAt)
+	})
+	return result
+}
+
+// CreateProject adds an empty project.
+func (s *Store) CreateProject(name string) (Project, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	name, err := s.validateProjectName("", name)
+	if err != nil {
+		return Project{}, err
+	}
+	now := time.Now().UTC()
+	id, err := newID(now)
+	if err != nil {
+		return Project{}, fmt.Errorf("generate project id: %w", err)
+	}
+	project := Project{ID: id, Name: name, CreatedAt: now}
+	s.projects = append(s.projects, project)
+	if err := s.writeProjects(s.projects); err != nil {
+		s.projects = s.projects[:len(s.projects)-1]
+		return Project{}, err
+	}
+	return project, nil
+}
+
+// RenameProject changes a project's display name.
+func (s *Store) RenameProject(id, name string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	index := s.findProject(id)
+	if index < 0 {
+		return fmt.Errorf("项目不存在")
+	}
+	name, err := s.validateProjectName(id, name)
+	if err != nil {
+		return err
+	}
+	previous := s.projects[index].Name
+	s.projects[index].Name = name
+	if err := s.writeProjects(s.projects); err != nil {
+		s.projects[index].Name = previous
+		return err
+	}
+	return nil
+}
+
+// DeleteProject removes a project and every conversation in it.
+func (s *Store) DeleteProject(id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	projectIndex := s.findProject(id)
+	if projectIndex < 0 {
+		return fmt.Errorf("项目不存在")
+	}
+	deleted := make(map[string]bool)
+	for _, conversation := range s.entries {
+		if conversation.ProjectID != id {
+			continue
+		}
+		if err := os.Remove(s.path(conversation.ID)); err != nil && !errors.Is(err, os.ErrNotExist) {
+			if len(deleted) > 0 {
+				s.removeConversations(deleted)
+				_ = s.writeIndex(s.entries)
+			}
+			return fmt.Errorf("删除项目中的会话: %w", err)
+		}
+		deleted[conversation.ID] = true
+	}
+	s.removeConversations(deleted)
+	s.projects = append(s.projects[:projectIndex], s.projects[projectIndex+1:]...)
+	if err := s.writeIndex(s.entries); err != nil {
+		return err
+	}
+	return s.writeProjects(s.projects)
+}
+
+// Create adds an empty conversation.
+func (s *Store) Create() (Conversation, error) {
+	return s.CreateInProject("")
+}
+
+// CreateInProject adds an empty conversation, optionally inside a project.
+func (s *Store) CreateInProject(projectID string) (Conversation, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if projectID != "" && s.findProject(projectID) < 0 {
+		return Conversation{}, fmt.Errorf("项目不存在")
+	}
 	now := time.Now().UTC()
 	id, err := newID(now)
 	if err != nil {
@@ -116,6 +240,7 @@ func (s *Store) Create() (Conversation, error) {
 	conversation := Conversation{
 		ID:        id,
 		Title:     defaultTitle,
+		ProjectID: projectID,
 		CreatedAt: now,
 		UpdatedAt: now,
 	}
@@ -123,6 +248,7 @@ func (s *Store) Create() (Conversation, error) {
 		Type:      "conversation",
 		Version:   fileVersion,
 		ID:        id,
+		ProjectID: projectID,
 		CreatedAt: now,
 	}); err != nil {
 		return Conversation{}, err
@@ -134,6 +260,34 @@ func (s *Store) Create() (Conversation, error) {
 		return Conversation{}, err
 	}
 	return conversation, nil
+}
+
+// MoveConversation changes the project of a conversation. An empty project
+// moves it to unfiled conversations.
+func (s *Store) MoveConversation(id, projectID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	index := s.find(id)
+	if index < 0 {
+		return fmt.Errorf("会话不存在")
+	}
+	if projectID != "" && s.findProject(projectID) < 0 {
+		return fmt.Errorf("项目不存在")
+	}
+	if s.entries[index].ProjectID == projectID {
+		return nil
+	}
+	item := entry{
+		Type:      "project",
+		Timestamp: time.Now().UTC(),
+		ProjectID: projectID,
+	}
+	if err := s.appendEntry(id, item); err != nil {
+		return err
+	}
+	s.entries[index].ProjectID = projectID
+	return s.writeIndex(s.entries)
 }
 
 // Get returns conversation metadata and its model-visible messages.
@@ -267,8 +421,68 @@ func (s *Store) find(id string) int {
 	return -1
 }
 
+func (s *Store) findProject(id string) int {
+	for i := range s.projects {
+		if s.projects[i].ID == id {
+			return i
+		}
+	}
+	return -1
+}
+
+func (s *Store) removeConversations(ids map[string]bool) {
+	if len(ids) == 0 {
+		return
+	}
+	kept := s.entries[:0]
+	for _, conversation := range s.entries {
+		if !ids[conversation.ID] {
+			kept = append(kept, conversation)
+		}
+	}
+	s.entries = kept
+}
+
+func (s *Store) validateProjectName(currentID, name string) (string, error) {
+	name = strings.Join(strings.Fields(name), " ")
+	if name == "" {
+		return "", errors.New("项目名称不能为空")
+	}
+	if name == unfiledProjectName {
+		return "", fmt.Errorf("“%s”是保留名称", unfiledProjectName)
+	}
+	name = truncate(name, maxProjectName)
+	for i := range s.projects {
+		if s.projects[i].ID == currentID {
+			continue
+		}
+		if strings.EqualFold(s.projects[i].Name, name) {
+			return "", fmt.Errorf("项目名称已存在")
+		}
+	}
+	return name, nil
+}
+
 func (s *Store) path(id string) string {
 	return filepath.Join(s.dir, id+".jsonl")
+}
+
+func (s *Store) readProjects() ([]Project, error) {
+	data, err := os.ReadFile(s.projectsPath)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	var doc projectsFile
+	if err := json.Unmarshal(data, &doc); err != nil {
+		return nil, fmt.Errorf("parse projects: %w", err)
+	}
+	if doc.Version != projectFileVersion {
+		return nil, fmt.Errorf("unsupported projects version %d", doc.Version)
+	}
+	return doc.Projects, nil
 }
 
 func (s *Store) readIndex() ([]Conversation, error) {
@@ -347,6 +561,40 @@ func (s *Store) writeIndex(entries []Conversation) error {
 	return nil
 }
 
+func (s *Store) writeProjects(projects []Project) error {
+	doc := projectsFile{Version: projectFileVersion, Projects: projects}
+	data, err := json.MarshalIndent(doc, "", "  ")
+	if err != nil {
+		return fmt.Errorf("encode projects: %w", err)
+	}
+	data = append(data, '\n')
+	tmp, err := os.CreateTemp(s.dir, ".projects-*.tmp")
+	if err != nil {
+		return fmt.Errorf("create projects: %w", err)
+	}
+	tmpPath := tmp.Name()
+	defer os.Remove(tmpPath)
+	if err := tmp.Chmod(0o600); err != nil {
+		tmp.Close()
+		return err
+	}
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		return fmt.Errorf("write projects: %w", err)
+	}
+	if err := tmp.Sync(); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(tmpPath, s.projectsPath); err != nil {
+		return fmt.Errorf("replace projects: %w", err)
+	}
+	return nil
+}
+
 func (s *Store) writeHeader(h header) error {
 	file, err := os.OpenFile(s.path(h.ID), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
 	if err != nil {
@@ -412,6 +660,7 @@ func (s *Store) readRecords(id string) (Conversation, []MessageRecord, error) {
 				return Conversation{}, nil, fmt.Errorf("unsupported conversation file")
 			}
 			info.ID = h.ID
+			info.ProjectID = h.ProjectID
 			info.CreatedAt = h.CreatedAt
 			info.UpdatedAt = h.CreatedAt
 			seenHead = true
@@ -420,6 +669,10 @@ func (s *Store) readRecords(id string) (Conversation, []MessageRecord, error) {
 		var item entry
 		if err := json.Unmarshal([]byte(line), &item); err != nil {
 			return Conversation{}, nil, fmt.Errorf("parse conversation entry: %w", err)
+		}
+		if item.Type == "project" {
+			info.ProjectID = item.ProjectID
+			continue
 		}
 		if item.Timestamp.After(info.UpdatedAt) {
 			info.UpdatedAt = item.Timestamp

@@ -1,4 +1,4 @@
-import { SegmentedControl } from "../../ui";
+import { Field, SegmentedControl } from "../../ui";
 import type { SetDraftField, SettingsDraft } from "./types";
 
 type PreferenceKey = "responseStyle" | "warmth" | "enthusiasm" | "emoji";
@@ -54,6 +54,20 @@ type PersonalizationSettingsProps = {
 export function PersonalizationSettings({ draft, setField }: PersonalizationSettingsProps) {
   return (
     <>
+      <section className="settings-group">
+        <Field label="称呼">
+          {(id) => (
+            <input
+              id={id}
+              value={draft.userName}
+              maxLength={32}
+              onChange={(event) => setField("userName", event.target.value)}
+              placeholder="怎么称呼你"
+            />
+          )}
+        </Field>
+      </section>
+
       <section className="settings-group">
         <h3 className="settings-group-title">表达方式</h3>
         <div className="preference-list">

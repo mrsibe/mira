@@ -8,6 +8,7 @@ import { call, type Channel } from "mygo-runtime";
 export interface Bootstrap {
   settings: View;
   conversations: Conversation[];
+  projects: Project[];
   activeConversationId?: string;
   version: string;
   configError?: string;
@@ -33,6 +34,7 @@ export interface Conversation {
   id: string;
   title: string;
   preview: string;
+  projectId?: string;
   createdAt: string;
   updatedAt: string;
   messageCount: number;
@@ -71,7 +73,6 @@ export interface Input {
 
 /** View is the frontend-safe memory snapshot. */
 export interface MemoryView {
-  manual: string;
   summary: string;
   revision: number;
   updatedAt?: string;
@@ -81,9 +82,15 @@ export interface MemoryView {
   lastError?: string;
 }
 
-/** SaveInput updates the editable memory sections. */
+/** Project groups conversations in the sidebar. */
+export interface Project {
+  id: string;
+  name: string;
+  createdAt: string;
+}
+
+/** SaveInput updates the editable automatic summary. */
 export interface SaveInput {
-  manual: string;
   summary: string;
   revision: number;
 }
@@ -181,7 +188,7 @@ export const Mira = {
   clearAPIKey(): Promise<View> {
     return call("Mira.ClearAPIKey");
   },
-  /** ClearMemory removes both memory sections. */
+  /** ClearMemory removes the automatic memory summary. */
   clearMemory(): Promise<MemoryView> {
     return call("Mira.ClearMemory");
   },
@@ -190,12 +197,20 @@ export const Mira = {
     return call("Mira.ClearTavilyAPIKey");
   },
   /** CreateConversation starts a new thread. */
-  createConversation(): Promise<Conversation> {
-    return call("Mira.CreateConversation");
+  createConversation(projectID: string): Promise<Conversation> {
+    return call("Mira.CreateConversation", projectID);
+  },
+  /** CreateProject adds an empty project category. */
+  createProject(name: string): Promise<Project> {
+    return call("Mira.CreateProject", name);
   },
   /** DeleteConversation removes a thread. It cannot delete the running thread. */
   deleteConversation(id: string): Promise<void> {
     return call("Mira.DeleteConversation", id);
+  },
+  /** DeleteProject removes a project and all conversations in it. */
+  deleteProject(id: string): Promise<void> {
+    return call("Mira.DeleteProject", id);
   },
   /** GetConversation loads a thread and its messages. */
   getConversation(id: string): Promise<ConversationDetail> {
@@ -209,6 +224,14 @@ export const Mira = {
   listConversations(): Promise<Conversation[]> {
     return call("Mira.ListConversations");
   },
+  /** ListProjects returns project categories in creation order. */
+  listProjects(): Promise<Project[]> {
+    return call("Mira.ListProjects");
+  },
+  /** MoveConversation changes a conversation's project category. */
+  moveConversation(id: string, projectID: string): Promise<void> {
+    return call("Mira.MoveConversation", id, projectID);
+  },
   /** RegenerateMemory rebuilds the memory summary now. */
   regenerateMemory(): Promise<MemoryView> {
     return call("Mira.RegenerateMemory");
@@ -217,7 +240,11 @@ export const Mira = {
   renameConversation(id: string, title: string): Promise<void> {
     return call("Mira.RenameConversation", id, title);
   },
-  /** SaveMemory updates the manual and automatic memory sections. */
+  /** RenameProject changes a project category's name. */
+  renameProject(id: string, name: string): Promise<void> {
+    return call("Mira.RenameProject", id, name);
+  },
+  /** SaveMemory updates the automatic memory summary. */
   saveMemory(input: SaveInput): Promise<MemoryView> {
     return call("Mira.SaveMemory", input);
   },

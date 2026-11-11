@@ -13,7 +13,7 @@
     top: var(--titlebar-height);
     bottom: 0;
     left: 0;
-    width: 280px;
+    width: min(var(--sidebar-width), calc(100vw - var(--space-7)));
     box-shadow: var(--shadow-4);
     transform: translateX(0);
   }
@@ -42,7 +42,7 @@
 }
 
 @media (max-width: 760px) {
-  .settings-modal {
+  dialog.modal.settings-modal {
     width: 100%;
     height: min(760px, 92dvh);
     max-height: 92dvh;
@@ -84,11 +84,6 @@
   .preference-row {
     grid-template-columns: 1fr;
     gap: var(--space-2);
-  }
-
-  .memory-status {
-    align-items: flex-start;
-    flex-direction: column;
   }
 }
 
@@ -148,7 +143,8 @@
 }
 
 @media (hover: none) {
-  .conversation-actions {
+  .conversation-actions,
+  .project-actions {
     display: flex;
   }
 }
