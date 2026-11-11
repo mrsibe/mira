@@ -1,3 +1,5 @@
+import type { Spec } from "@json-render/core";
+
 export type ToolRun = {
   id: string;
   name: string;
@@ -31,6 +33,18 @@ export type RunView = {
   thinkingEndedAt?: number;
   error?: string;
 };
+
+export type UISpecStatus = "streaming" | "complete" | "invalid";
+
+export type UISpecView = {
+  spec: Spec;
+  status: UISpecStatus;
+  error?: string;
+};
+
+export type AssistantSegment =
+  | { kind: "text"; key: string; text: string }
+  | { kind: "spec"; key: string; spec: UISpecView };
 
 export type ThemeMode = "system" | "light" | "dark";
 

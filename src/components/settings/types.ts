@@ -12,6 +12,7 @@ export type SettingsDraft = {
   tavilyApiKey: string;
   showTavilyKey: boolean;
   responseStyle: string;
+  personality: string;
   warmth: string;
   enthusiasm: string;
   emoji: string;
@@ -19,6 +20,7 @@ export type SettingsDraft = {
   memoryEnabled: boolean;
   memorySummaryEnabled: boolean;
   memorySearchEnabled: boolean;
+  intelligentUIEnabled: boolean;
 };
 
 export type SetDraftField = <K extends keyof SettingsDraft>(

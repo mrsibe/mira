@@ -50,7 +50,7 @@ export interface ConversationDetail {
  * Input is the frontend-safe update payload. An empty APIKey keeps the
  * existing key. A nil UserName keeps the existing display name. A nil
  * WebSearchEnabled keeps the existing value. An empty TavilyAPIKey keeps the
- * existing Tavily key.
+ * existing Tavily key. A nil IntelligentUIEnabled keeps the existing value.
  */
 export interface Input {
   baseUrl: string;
@@ -62,6 +62,7 @@ export interface Input {
   searchProvider: string;
   tavilyApiKey: string;
   responseStyle: string;
+  personality: string;
   warmth: string;
   enthusiasm: string;
   emoji: string;
@@ -69,6 +70,7 @@ export interface Input {
   memoryEnabled?: boolean;
   memorySummaryEnabled?: boolean;
   memorySearchEnabled?: boolean;
+  intelligentUIEnabled?: boolean;
 }
 
 /** View is the frontend-safe memory snapshot. */
@@ -167,6 +169,7 @@ export interface View {
   keychainAvailable: boolean;
   keychainError?: string;
   responseStyle: string;
+  personality: string;
   warmth: string;
   enthusiasm: string;
   emoji: string;
@@ -174,6 +177,7 @@ export interface View {
   memoryEnabled: boolean;
   memorySummaryEnabled: boolean;
   memorySearchEnabled: boolean;
+  intelligentUIEnabled: boolean;
 }
 
 // ---- Services ----

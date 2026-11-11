@@ -104,7 +104,12 @@ func (m *Manager) load() error {
 		if parseErr != nil {
 			m.fileErr = parseErr
 		} else {
-			m.auto = summary
+			m.auto = normalizeMemorySections(summary)
+			if m.auto != strings.TrimSpace(summary) {
+				if err := m.writeUserFileLocked(m.auto); err != nil {
+					return err
+				}
+			}
 		}
 	case errors.Is(err, os.ErrNotExist):
 		if err := m.writeUserFileLocked(m.auto); err != nil {
@@ -133,7 +138,8 @@ func (m *Manager) Get() View {
 	return m.viewLocked()
 }
 
-// Prompt returns the automatic memory injected into the system prompt.
+// Prompt returns the automatic memory snapshot used for append-only runtime
+// context in conversation history.
 func (m *Manager) Prompt() string {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -352,13 +358,13 @@ func (m *Manager) generate(
 	transcript := formatTurns(turns)
 	systemPrompt := `你是 Mira 的记忆整理器。把已有记忆和新增聊天记录合并成一份简洁、稳定的用户长期记忆。
 
-只记录在未来对话中仍然有用、且能从记录中得到支持的长期信息。不要记录临时任务、一次性问题、工具参数、内部思考、密钥或凭证。除非用户明确要求记住，否则不要记录健康、财务、身份等敏感信息。不要编造事实。
+只记录在未来对话中仍然有用、且能从记录中得到支持的长期信息。不要记录临时信息、临时任务、一次性问题、工具参数、内部思考、密钥或凭证。除非用户明确要求记住，否则不要记录健康、财务、身份等敏感信息。不要编造事实。
 
 只输出 Markdown，不要代码围栏。使用以下分类，没有内容的分类可以省略：
-## 用户画像
-## 长期偏好
+## 回答偏好
+## 重要话题
+## 用户洞察
 ## 当前项目与目标
-## 重要约束
 
 合并重复信息，删除过时或相互矛盾的内容。总长度控制在 2000 个中文字符以内。`
 	userPrompt := fmt.Sprintf(`<existing_memory>
@@ -430,6 +436,9 @@ func conversationTurns(conversation store.Conversation, records []store.MessageR
 		current = nil
 	}
 	for _, record := range records {
+		if record.ContextKind != "" {
+			continue
+		}
 		message := record.Message
 		text := strings.TrimSpace(message.Text())
 		switch message.Role {
@@ -534,6 +543,107 @@ func parseUserFile(content string) (string, error) {
 		return "", err
 	}
 	return strings.TrimSpace(summary), nil
+}
+
+var memorySectionOrder = []string{
+	"回答偏好",
+	"重要话题",
+	"用户洞察",
+	"当前项目与目标",
+}
+
+var memorySectionAliases = map[string]string{
+	"回答偏好":    "回答偏好",
+	"长期偏好":    "回答偏好",
+	"重要话题":    "重要话题",
+	"用户洞察":    "用户洞察",
+	"用户画像":    "用户洞察",
+	"重要约束":    "用户洞察",
+	"当前项目与目标": "当前项目与目标",
+}
+
+type memorySection struct {
+	heading string
+	body    string
+}
+
+func normalizeMemorySections(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	sections, ok := parseMemorySections(value)
+	if !ok {
+		return value
+	}
+
+	grouped := make(map[string][]string, len(memorySectionOrder))
+	var unknown []string
+	recognized := false
+	for _, section := range sections {
+		target, known := memorySectionAliases[section.heading]
+		if !known {
+			block := "## " + section.heading
+			if section.body != "" {
+				block += "\n" + section.body
+			}
+			unknown = append(unknown, block)
+			continue
+		}
+		recognized = true
+		if section.body != "" {
+			grouped[target] = append(grouped[target], section.body)
+		}
+	}
+	if !recognized {
+		return value
+	}
+
+	var output []string
+	for _, heading := range memorySectionOrder {
+		parts := grouped[heading]
+		if len(parts) == 0 {
+			continue
+		}
+		output = append(output, "## "+heading+"\n"+strings.Join(parts, "\n\n"))
+	}
+	if len(unknown) > 0 {
+		output = append(output, strings.Join(unknown, "\n\n"))
+	}
+	return strings.Join(output, "\n\n")
+}
+
+func parseMemorySections(value string) ([]memorySection, bool) {
+	lines := strings.Split(value, "\n")
+	var sections []memorySection
+	var current *memorySection
+	var body []string
+	flush := func() {
+		if current == nil {
+			return
+		}
+		current.body = strings.TrimSpace(strings.Join(body, "\n"))
+		sections = append(sections, *current)
+	}
+
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		switch {
+		case strings.HasPrefix(trimmed, "## "):
+			flush()
+			current = &memorySection{heading: strings.TrimSpace(strings.TrimPrefix(trimmed, "## "))}
+			body = nil
+		case current != nil:
+			body = append(body, line)
+		case trimmed != "":
+			return nil, false
+		}
+	}
+	flush()
+	if len(sections) == 0 {
+		return nil, false
+	}
+	return sections, true
 }
 
 func section(content, start, end string) (string, error) {

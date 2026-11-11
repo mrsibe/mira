@@ -122,6 +122,9 @@ func turnDocs(conversation store.Conversation, records []store.MessageRecord) []
 	}
 
 	for _, record := range records {
+		if record.ContextKind != "" {
+			continue
+		}
 		message := record.Message
 		text := strings.TrimSpace(message.Text())
 		switch message.Role {

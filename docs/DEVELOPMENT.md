@@ -46,6 +46,12 @@ bun run dev
 bun run generate
 ```
 
+修改 `src/genui/catalog.ts` 后，同步后端嵌入的组件提示词：
+
+```bash
+bun run generate:ui-prompt
+```
+
 ## 模型与搜索配置
 
 首次启动后，点击侧栏底部的“设置”。设置分为外观 / 个性化 / 记忆 / 搜索 /
@@ -87,6 +93,7 @@ bun run generate
 | --- | --- |
 | `webSearchEnabled` | 是否向 Agent 暴露 `web_search` 工具，默认 `true` |
 | `searchProvider` | `duckduckgo` 或 `tavily`，默认 `duckduckgo` |
+| `personality` | `professional` / `friendly` / `candid` / `quirky` / `efficient` / `cynical`，默认 `friendly` |
 | `responseStyle` | `concise` / `balanced` / `detailed` |
 | `warmth` | `reserved` / `balanced` / `friendly` |
 | `enthusiasm` | `calm` / `balanced` / `enthusiastic` |
@@ -95,6 +102,26 @@ bun run generate
 | `memoryEnabled` | 记忆总开关，默认 `true` |
 | `memorySummaryEnabled` | 生成并注入自动摘要，默认 `true` |
 | `memorySearchEnabled` | 暴露 `search_memory` 工具，默认 `true` |
+| `intelligentUIEnabled` | 智能界面总开关，默认 `true` |
+
+## 智能界面
+
+“设置 → 个性化”中的“智能界面”默认开启。开启时，
+`internal/prompt` 会在核心规则和写作规范之后注入受控组件目录；关闭时该模块完全省略，
+前端也不会渲染界面。无论开关状态如何，前端都会从回答中移除 `spec` 围栏，
+避免把原始 JSONL 暴露给用户。
+
+模型输出协议是：每条回答最多输出一个以 `spec` 标记的围栏代码块，围栏内为
+json-render JSONL/RFC 6902 补丁。围栏可以出现在回答中的任意位置，前端会按
+Markdown 与界面的原始顺序交错渲染；界面已经承载的表格、图表或表单不应在
+Markdown 中重复。
+界面只允许使用 `src/genui/catalog.ts` 注册的组件；组件不能执行 HTML、JavaScript
+或任意 CSS。交互分为本地状态操作和受控的 `ask_agent` 动作，不直接授予模型
+系统权限。
+
+界面状态按会话和消息索引保存在 WebView 的 `localStorage` 中，键格式为
+`mira:genui:v1:<conversationId>:<messageIndex>`，单条上限 64 KB。会话 JSONL
+格式不存储界面状态。
 
 ## 数据目录
 
@@ -123,10 +150,29 @@ updater.json                 # 自动检查设置、上次检查时间与跳过�
 索引丢失或损坏时会从 `.jsonl` 文件自动重建项目归属。`projects.json` 使用独立
 版本号，缺失时按空项目列表处理。
 
-`USER.md` 使用 `MIRA:AUTO` 标记保存自动摘要。旧版本写入的 `MIRA:MANUAL` 区块
-会被忽略，并在下一次保存或更新摘要时移除。`state.json` 记录
+`USER.md` 使用 `MIRA:AUTO` 标记保存自动摘要。摘要分区为“回答偏好”“重要话题”
+“用户洞察”“当前项目与目标”。启动时会把旧版的“长期偏好”“用户画像”
+“重要约束”无损迁移到新分区，无法识别的内容原样保留；迁移只重写 `USER.md`，
+不改变 revision 或更新时间。旧版本写入的 `MIRA:MANUAL` 区块会被忽略，并在
+下一次保存或更新摘要时移除。`state.json` 记录
 `pendingUserTurns`、`lastSummarizedAt`、`summaryUpdatedAt`、`lastError` 和
 `revision`。
+
+### 记忆上下文与缓存
+
+长期记忆不写入每轮重建的系统提示词。`internal/prompt.Build` 只生成稳定前缀：
+GPT-5.5 Instant 核心规则、Thinking 写作规范、智能界面目录和工具说明；之后才是
+会随设置变化的人格、表达偏好和自定义指令。人格提示词、来源与取舍记录在
+`internal/prompt/SOURCES.md`。记忆摘要由服务层作为隐藏的 `<mira_context>`
+消息追加到会话历史，并带有 `contextKind=memory` 与内容哈希。
+
+- 摘要未变化时不会重复追加。
+- 摘要更新、清除或关闭记忆时，追加一个新版本；旧版本仍保留在历史中，模型以
+  最新版本为准。
+- 隐藏上下文进入模型历史，但不会出现在前端消息列表、会话标题、预览、
+  消息计数或 BM25 记忆中。
+- OpenAI 请求使用会话 ID 作为 `prompt_cache_key`。稳定系统提示词、确定性排序
+  的工具定义和追加式历史共同保证旧前缀可复用。
 
 ## 架构
 
@@ -149,6 +195,7 @@ src/App.tsx
   ├── components/Composer.tsx
   ├── components/SettingsDialog.tsx
   │     └── components/settings/     # 设置栏目与记忆编辑 hook
+  ├── genui/                         # 组件目录、JSONL 解析、渲染与状态持久化
   ├── ui/                            # Button、Modal、Field 等 primitives
   ├── lib/activity.ts                # 流式与历史消息的线性时间线
   └── styles/                        # tokens、布局、对话、设置和响应式样式
@@ -157,7 +204,8 @@ src/App.tsx
 ### 一次发送的生命周期
 
 1. 前端调用 `Mira.send(conversationId, content, channel)`。
-2. 服务端读取会话历史，构造 `agent.Session`。
+2. 服务端读取会话与隐藏上下文；记忆版本变化时先追加新的 `<mira_context>`，
+   再构造 `agent.Session`。
 3. GOAT 流式产生 message、thinking、tool、usage 事件；`update_plan` 工具调用
    会被前端解析为计划列表，不显示为普通工具卡。
 4. 服务端把事件写入 `*mygo.Channel[chat.ChatEvent]`。
@@ -239,13 +287,14 @@ npm_config_registry=https://registry.npmjs.org bun audit
 ```
 
 Go 测试覆盖设置持久化、钥匙串读写与删除、环境变量优先级、钥匙串不可用时的
-会话回退、密钥不落盘、提示词模块顺序、BM25 中英文检索与当前会话排除、USER.md
-兼容与 revision 冲突、摘要阈值与失败保留旧摘要、首次 40 回合回填、搜索
-Provider 解析与降级、工具注册、会话增删改查、项目分组与迁移、项目级联删除、
-流式事件、取消后的部分回答持久化，以及单 run 锁。
+会话回退、密钥不落盘、提示词稳定前缀与模块顺序、追加式记忆上下文与缓存前缀
+复用、BM25 中英文检索与当前会话排除、隐藏上下文过滤、USER.md 兼容与 revision
+冲突、摘要阈值与失败保留旧摘要、首次 40 回合回填、搜索 Provider 解析与降级、
+工具注册、会话增删改查、项目分组与迁移、项目级联删除、流式事件、取消后的
+部分回答持久化，以及单 run 锁。
 
-前端依赖真实的 MyGo 运行时，因此视觉与端到端行为需要通过 `bun run dev` 或
-构建后的桌面应用确认。
+前端测试覆盖设置开关、智能界面解析与渲染、活动时间线和基础组件；依赖真实
+MyGo 运行时的视觉与端到端行为仍需通过 `bun run dev` 或构建后的桌面应用确认。
 
 ## 当前边界
 
@@ -253,7 +302,7 @@ Provider 解析与降级、工具注册、会话增删改查、项目分组与�
 - 图片与文件附件尚未实现，输入框中的附件按钮会提示后续支持。
 - 消息编辑、重新生成、分支和分享尚未实现。
 - 模型自动生成标题尚未实现；标题取自首条用户消息。
-- 可视化回答和模型参数面板尚未实现。
+- 自由 HTML/JavaScript、自定义组件和跨设备界面状态同步尚未实现。
 - 搜索缓存、独立来源卡片和网页正文抓取尚未实现。
 - 记忆检索目前使用 BM25，没有向量检索或跨会话语义重排。
 - Windows / macOS 代码签名和 macOS 公证尚未完成。

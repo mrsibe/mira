@@ -41,9 +41,8 @@ const updatePlanToolName = "update_plan"
 // research task can legitimately consume far more than a dozen turns.
 const MaxSteps = 64
 
-// Memory supplies prompt context and historical search to the agent.
+// Memory supplies historical search to the agent.
 type Memory interface {
-	Prompt() string
 	Search(context.Context, string, int, string) ([]memory.SearchResult, error)
 }
 
@@ -73,10 +72,11 @@ func (e *Engine) NewAgent(settings config.Settings, conversationID string) (*age
 	}
 	tools, systemPrompt := e.toolsFor(settings, conversationID)
 	return agent.New(agent.Config{
-		Model:        model,
-		Tools:        tools,
-		SystemPrompt: systemPrompt,
-		MaxSteps:     MaxSteps,
+		Model:          model,
+		Tools:          tools,
+		SystemPrompt:   systemPrompt,
+		MaxSteps:       MaxSteps,
+		RequestOptions: ai.RequestOptions{SessionID: conversationID},
 	})
 }
 
@@ -107,17 +107,7 @@ func newModel(settings config.Settings) (ai.Model, error) {
 
 func (e *Engine) toolsFor(settings config.Settings, conversationID string) ([]agent.Tool, string) {
 	tools := append([]agent.Tool(nil), e.Tools...)
-	autoMemory := ""
-	if settings.MemoryEnabled && e.Memory != nil {
-		autoMemory = e.Memory.Prompt()
-		if !settings.MemorySummaryEnabled {
-			autoMemory = ""
-		}
-	}
-	systemPrompt := prompt.Build(prompt.Options{
-		Settings:   settings,
-		AutoMemory: autoMemory,
-	})
+	systemPrompt := prompt.Build(prompt.Options{Settings: settings, Now: time.Now()})
 	if settings.WebSearchEnabled {
 		provider := search.NewProvider(settings.SearchProvider, settings.TavilyAPIKey, nil)
 		if e.NewSearchProvider != nil {

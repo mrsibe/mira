@@ -15,6 +15,7 @@ import (
 	"github.com/mrsibe/mira/internal/chat"
 	"github.com/mrsibe/mira/internal/config"
 	"github.com/mrsibe/mira/internal/memory"
+	"github.com/mrsibe/mira/internal/prompt"
 	"github.com/mrsibe/mira/internal/store"
 )
 
@@ -171,8 +172,11 @@ func (s *Service) GetConversation(id string) (ConversationDetail, error) {
 	}
 	detail := ConversationDetail{Conversation: conversation}
 	detail.Messages = make([]chat.UIMessage, 0, len(records))
-	for i, record := range records {
-		message := chat.FromMessage(record.Message, i)
+	for _, record := range records {
+		if record.ContextKind != "" {
+			continue
+		}
+		message := chat.FromMessage(record.Message, len(detail.Messages))
 		message.ThinkingDurationMS = record.ThinkingDurationMS
 		detail.Messages = append(detail.Messages, message)
 	}
@@ -307,7 +311,7 @@ func (s *Service) run(
 		return errNotConfigured
 	}
 
-	conversation, history, err := s.store.Get(conversationID)
+	conversation, records, err := s.store.GetRecords(conversationID)
 	if err != nil {
 		return err
 	}
@@ -322,6 +326,14 @@ func (s *Service) run(
 	runStarted := time.Now()
 
 	settings := s.cfg.Settings()
+	records, err = s.appendRuntimeMemory(conversationID, settings, records)
+	if err != nil {
+		return err
+	}
+	history := make([]ai.Message, len(records))
+	for index, record := range records {
+		history[index] = record.Message
+	}
 	assistant, err := s.engine.NewAgent(settings, conversationID)
 	if err != nil {
 		return err
@@ -484,6 +496,49 @@ func (s *Service) run(
 		Steps: result.Steps,
 	})
 	return nil
+}
+
+// appendRuntimeMemory keeps dynamic memory in an append-only history event.
+// Rebuilding the stable system prompt each run is safe; rewriting a memory block
+// inside it would invalidate every cached token that follows.
+func (s *Service) appendRuntimeMemory(
+	conversationID string,
+	settings config.Settings,
+	records []store.MessageRecord,
+) ([]store.MessageRecord, error) {
+	enabled := settings.MemoryEnabled && settings.MemorySummaryEnabled
+	summary := ""
+	if enabled && s.memory != nil {
+		summary = s.memory.Prompt()
+	}
+	context := prompt.NewRuntimeMemory(enabled, summary)
+
+	lastHash := ""
+	for index := len(records) - 1; index >= 0; index-- {
+		if records[index].ContextKind == prompt.RuntimeMemoryKind {
+			lastHash = records[index].ContextHash
+			break
+		}
+	}
+	if !context.ShouldAppend(lastHash) {
+		return records, nil
+	}
+
+	message := ai.TextMessage(ai.RoleUser, context.Text())
+	if err := s.store.AppendContext(
+		conversationID,
+		prompt.RuntimeMemoryKind,
+		context.Hash,
+		message,
+	); err != nil {
+		return nil, err
+	}
+	return append(records, store.MessageRecord{
+		Message:     message,
+		Timestamp:   time.Now().UTC(),
+		ContextKind: prompt.RuntimeMemoryKind,
+		ContextHash: context.Hash,
+	}), nil
 }
 
 func (s *Service) beginRun(ctx context.Context, conversationID string) (*activeRun, context.Context, error) {

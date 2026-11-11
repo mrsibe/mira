@@ -329,6 +329,12 @@ func TestLegacyConfigDefaultsWebSearchOn(t *testing.T) {
 	if !view.WebSearchEnabled || view.SearchProvider != SearchProviderDuckDuckGo {
 		t.Fatalf("legacy config search defaults = %+v", view)
 	}
+	if view.Personality != PersonalityFriendly {
+		t.Fatalf("legacy config personality default = %+v", view)
+	}
+	if !view.IntelligentUIEnabled {
+		t.Fatalf("legacy config intelligent UI default = %+v", view)
+	}
 
 	falseValue := false
 	if _, err := manager.Save(Input{WebSearchEnabled: &falseValue}); err != nil {
@@ -337,6 +343,38 @@ func TestLegacyConfigDefaultsWebSearchOn(t *testing.T) {
 	reloaded := newTestManager(t, dir)
 	if reloaded.View().WebSearchEnabled {
 		t.Fatal("explicitly disabled web search was not persisted")
+	}
+}
+
+func TestIntelligentUIIsOnByDefaultAndCanBeDisabled(t *testing.T) {
+	clearConfigEnv(t)
+	dir := t.TempDir()
+	manager := newTestManager(t, dir)
+
+	if !manager.View().IntelligentUIEnabled {
+		t.Fatal("intelligent UI should be enabled by default")
+	}
+
+	disabled := false
+	saved, err := manager.Save(Input{IntelligentUIEnabled: &disabled})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if saved.IntelligentUIEnabled {
+		t.Fatal("intelligent UI was not disabled")
+	}
+
+	reloaded := newTestManager(t, dir)
+	if reloaded.View().IntelligentUIEnabled {
+		t.Fatal("explicitly disabled intelligent UI was not persisted")
+	}
+
+	kept, err := reloaded.Save(Input{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if kept.IntelligentUIEnabled {
+		t.Fatal("omitting the setting should preserve the disabled value")
 	}
 }
 
@@ -355,6 +393,7 @@ func TestPersonalizationAndMemoryDefaultsAndLifecycle(t *testing.T) {
 
 	initial := manager.View()
 	if initial.ResponseStyle != ResponseStyleConcise ||
+		initial.Personality != PersonalityFriendly ||
 		initial.Warmth != WarmthBalanced ||
 		initial.Enthusiasm != EnthusiasmBalanced ||
 		initial.Emoji != EmojiNone {
@@ -367,6 +406,7 @@ func TestPersonalizationAndMemoryDefaultsAndLifecycle(t *testing.T) {
 	summaryDisabled := false
 	saved, err := manager.Save(Input{
 		ResponseStyle:        ResponseStyleDetailed,
+		Personality:          PersonalityCandid,
 		Warmth:               WarmthFriendly,
 		Enthusiasm:           EnthusiasmCalm,
 		Emoji:                EmojiSparing,
@@ -377,6 +417,7 @@ func TestPersonalizationAndMemoryDefaultsAndLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	if saved.ResponseStyle != ResponseStyleDetailed ||
+		saved.Personality != PersonalityCandid ||
 		saved.Warmth != WarmthFriendly ||
 		saved.Enthusiasm != EnthusiasmCalm ||
 		saved.Emoji != EmojiSparing ||
@@ -387,6 +428,7 @@ func TestPersonalizationAndMemoryDefaultsAndLifecycle(t *testing.T) {
 
 	reloaded := newTestManager(t, dir)
 	if reloaded.View().ResponseStyle != ResponseStyleDetailed ||
+		reloaded.View().Personality != PersonalityCandid ||
 		reloaded.View().MemorySummaryEnabled {
 		t.Fatalf("reloaded personalization = %+v", reloaded.View())
 	}
@@ -396,6 +438,9 @@ func TestPersonalizationAndMemoryDefaultsAndLifecycle(t *testing.T) {
 	}
 	if _, err := manager.Save(Input{Warmth: "clingy"}); err == nil {
 		t.Fatal("unsupported warmth should be rejected")
+	}
+	if _, err := manager.Save(Input{Personality: "dramatic"}); err == nil {
+		t.Fatal("unsupported personality should be rejected")
 	}
 	if _, err := manager.Save(Input{Emoji: "always"}); err == nil {
 		t.Fatal("unsupported emoji level should be rejected")

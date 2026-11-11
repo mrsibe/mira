@@ -42,6 +42,10 @@ export default function App() {
   const [runs, setRuns] = useState<Record<string, RunView>>({});
   const [activeId, setActiveId] = useState<string | null>(null);
   const [runningId, setRunningId] = useState<string | null>(null);
+  const [scrollTarget, setScrollTarget] = useState<{
+    conversationId: string;
+    messageIndex: number;
+  } | null>(null);
   const [loading, setLoading] = useState(true);
   const [bootstrapError, setBootstrapError] = useState("");
   const [configError, setConfigError] = useState("");
@@ -166,6 +170,7 @@ export default function App() {
         ...previous,
         [id]: [...(previous[id] ?? []), userMessage],
       }));
+      setScrollTarget({ conversationId: id, messageIndex: userIndex });
       setComposer("");
       setRuns((previous) => ({ ...previous, [id]: emptyRun() }));
       setRunningId(id);
@@ -240,11 +245,19 @@ export default function App() {
     ],
   );
 
+  const handleAskAgent = useCallback(
+    (message: string) => {
+      void sendMessage(message);
+    },
+    [sendMessage],
+  );
+
   function newChat(projectID = "") {
     if (runningId) {
       showToast("正在生成回复，请先停止当前回复");
       return;
     }
+    setScrollTarget(null);
     setActiveId(null);
     setComposer("");
     setNewConversationProjectID(projectID);
@@ -252,6 +265,7 @@ export default function App() {
   }
 
   async function selectConversation(id: string) {
+    setScrollTarget(null);
     setActiveId(id);
     setNewConversationProjectID("");
     if (window.innerWidth < 900) setSidebarOpen(false);
@@ -468,7 +482,14 @@ export default function App() {
             </Welcome>
           ) : (
             <>
-              <Thread messages={activeMessages} run={activeRun} />
+              <Thread
+                messages={activeMessages}
+                run={activeRun}
+                conversationId={activeId ?? ""}
+                scrollTarget={scrollTarget}
+                intelligentUIEnabled={settings?.intelligentUIEnabled ?? true}
+                onAskAgent={handleAskAgent}
+              />
               <Composer
                 value={composer}
                 running={activeRunning}

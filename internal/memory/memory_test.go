@@ -2,8 +2,11 @@ package memory
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -78,6 +81,42 @@ func TestBM25SearchFindsChineseAndLatinTurns(t *testing.T) {
 	}
 }
 
+func TestBM25SearchIgnoresInjectedContext(t *testing.T) {
+	now := time.Now().UTC()
+	source := &fakeSource{records: make(map[string][]store.MessageRecord)}
+	source.add(
+		store.Conversation{ID: "project", Title: "项目"},
+		append(
+			[]store.MessageRecord{{
+				Message:     ai.TextMessage(ai.RoleUser, "秘密上下文橘子"),
+				Timestamp:   now,
+				ContextKind: "memory",
+				ContextHash: "hash-1",
+			}},
+			turnRecords(now.Add(time.Second), "我喜欢 Go", "记住了。")...,
+		)...,
+	)
+	manager, err := Open(t.TempDir(), source, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	results, err := manager.Search(context.Background(), "橘子", 5, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 0 {
+		t.Fatalf("hidden context leaked into search: %+v", results)
+	}
+	results, err = manager.Search(context.Background(), "Go", 5, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 1 || results[0].ConversationID != "project" {
+		t.Fatalf("visible turn search = %+v", results)
+	}
+}
+
 func TestSearchExcludesCurrentConversationAndRebuildsAfterMarkDirty(t *testing.T) {
 	now := time.Now().UTC()
 	source := &fakeSource{records: make(map[string][]store.MessageRecord)}
@@ -139,7 +178,7 @@ func TestUserFileRoundTripAndRevisionConflict(t *testing.T) {
 		t.Fatal(err)
 	}
 	view, err := manager.Save(SaveInput{
-		Summary:  "## 用户画像\n- 后端工程师",
+		Summary:  "## 用户洞察\n- 后端工程师",
 		Revision: 0,
 	})
 	if err != nil {
@@ -164,6 +203,131 @@ func TestUserFileRoundTripAndRevisionConflict(t *testing.T) {
 	refreshed := reloaded.Get()
 	if refreshed.Summary != view.Summary {
 		t.Fatalf("conflict changed memory: %+v", refreshed)
+	}
+}
+
+func TestOpenMigratesLegacyMemorySectionsWithoutChangingState(t *testing.T) {
+	dir := t.TempDir()
+	legacy := `## 用户画像
+- 后端工程师
+
+## 长期偏好
+- 先给结论
+
+## 重要约束
+- 用中文回答
+
+## 当前项目与目标
+- Mira`
+	if err := os.WriteFile(
+		filepath.Join(dir, "USER.md"),
+		[]byte(renderUserFile(legacy)),
+		0o600,
+	); err != nil {
+		t.Fatal(err)
+	}
+	updatedAt := time.Date(2026, time.November, 1, 8, 30, 0, 0, time.UTC)
+	state, err := json.Marshal(persistedState{
+		Revision:         7,
+		SummaryUpdatedAt: updatedAt,
+		LastSummarizedAt: updatedAt,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "state.json"), state, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	manager, err := Open(dir, &fakeSource{records: map[string][]store.MessageRecord{}}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	view := manager.Get()
+	if view.Revision != 7 || view.UpdatedAt != updatedAt.Format(time.RFC3339) {
+		t.Fatalf("migration changed summary state: %+v", view)
+	}
+	for _, text := range []string{
+		"## 回答偏好\n- 先给结论",
+		"## 用户洞察\n- 后端工程师\n\n- 用中文回答",
+		"## 当前项目与目标\n- Mira",
+	} {
+		if !strings.Contains(view.Summary, text) {
+			t.Fatalf("migrated memory is missing %q:\n%s", text, view.Summary)
+		}
+	}
+	for _, old := range []string{"## 用户画像", "## 长期偏好", "## 重要约束"} {
+		if strings.Contains(view.Summary, old) {
+			t.Fatalf("legacy section %q was not migrated:\n%s", old, view.Summary)
+		}
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "USER.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "## 回答偏好") {
+		t.Fatalf("migrated USER.md was not written: %s", data)
+	}
+}
+
+func TestMemorySectionMigrationPreservesUnknownContent(t *testing.T) {
+	value := `## 用户画像
+- 设计师
+
+## 其他背景
+无法归类的原文
+
+## 重要约束
+- 不要使用术语`
+	migrated := normalizeMemorySections(value)
+	if !strings.Contains(migrated, "## 用户洞察\n- 设计师\n\n- 不要使用术语") {
+		t.Fatalf("known sections were not migrated:\n%s", migrated)
+	}
+	if !strings.Contains(migrated, "## 其他背景\n无法归类的原文") {
+		t.Fatalf("unknown section was not preserved:\n%s", migrated)
+	}
+}
+
+func TestSummaryPromptUsesFourMemorySections(t *testing.T) {
+	now := time.Now().UTC()
+	source := &fakeSource{records: make(map[string][]store.MessageRecord)}
+	source.add(
+		store.Conversation{ID: "chat", Title: "聊天"},
+		turnRecords(now, "以后回答先给结论", "好。")...,
+	)
+	var systemPrompt string
+	manager, err := Open(t.TempDir(), source, func(
+		_ context.Context,
+		_ config.Settings,
+		system string,
+		_ string,
+	) (string, error) {
+		systemPrompt = system
+		return "## 回答偏好\n- 先给结论", nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.Regenerate(
+		context.Background(),
+		config.Settings{MemoryEnabled: true, MemorySummaryEnabled: true},
+	); err != nil {
+		t.Fatal(err)
+	}
+	for _, heading := range memorySectionOrder {
+		if !strings.Contains(systemPrompt, "## "+heading) {
+			t.Fatalf("summary prompt is missing %q:\n%s", heading, systemPrompt)
+		}
+	}
+	for _, forbidden := range []string{"## 用户画像", "## 长期偏好", "## 重要约束"} {
+		if strings.Contains(systemPrompt, forbidden) {
+			t.Fatalf("summary prompt still contains %q:\n%s", forbidden, systemPrompt)
+		}
+	}
+	if !strings.Contains(systemPrompt, "临时信息") ||
+		!strings.Contains(systemPrompt, "工具参数") ||
+		!strings.Contains(systemPrompt, "内部思考") {
+		t.Fatalf("summary exclusions are incomplete:\n%s", systemPrompt)
 	}
 }
 

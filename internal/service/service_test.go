@@ -12,6 +12,8 @@ import (
 	"github.com/mrsibe/goat/ai/faux"
 	"github.com/mrsibe/mira/internal/chat"
 	"github.com/mrsibe/mira/internal/config"
+	"github.com/mrsibe/mira/internal/memory"
+	"github.com/mrsibe/mira/internal/prompt"
 	"github.com/mrsibe/mira/internal/store"
 )
 
@@ -130,6 +132,122 @@ func TestRunPassesReasoningEffort(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestRunAppendsMemoryContextWithoutRewritingPrefix(t *testing.T) {
+	model := faux.New(
+		textTurn("第一次回答"),
+		textTurn("第二次回答"),
+	)
+	svc, conversationID := newTestService(t, factoryFunc(
+		func(_ config.Settings, id string) (*agent.Agent, error) {
+			return agent.New(agent.Config{
+				Model:          model,
+				RequestOptions: ai.RequestOptions{SessionID: id},
+			})
+		},
+	))
+	memories, err := memory.Open(t.TempDir(), svc.store, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc.memory = memories
+	if _, err := memories.Save(memory.SaveInput{
+		Summary:  "用户喜欢 Go。",
+		Revision: 0,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := svc.run(
+		context.Background(),
+		conversationID,
+		"第一条问题",
+		SendOptions{},
+		&recordingSink{},
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	view := memories.Get()
+	if _, err := memories.Save(memory.SaveInput{
+		Summary:  "用户喜欢 Go 和 Rust。",
+		Revision: view.Revision,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.run(
+		context.Background(),
+		conversationID,
+		"第二条问题",
+		SendOptions{},
+		&recordingSink{},
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	_, records, err := svc.store.GetRecords(conversationID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != 6 {
+		t.Fatalf("records = %d: %+v", len(records), records)
+	}
+	for _, index := range []int{0, 3} {
+		if records[index].ContextKind != prompt.RuntimeMemoryKind {
+			t.Fatalf("record %d is not memory context: %+v", index, records[index])
+		}
+	}
+	if records[0].ContextHash == records[3].ContextHash {
+		t.Fatal("changed memory should append a new version")
+	}
+
+	detail, err := svc.GetConversation(conversationID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(detail.Messages) != 4 {
+		t.Fatalf("visible messages = %d", len(detail.Messages))
+	}
+	for index, message := range detail.Messages {
+		if message.Index != index {
+			t.Fatalf("visible indexes are not contiguous: %+v", detail.Messages)
+		}
+	}
+	if detail.Conversation.Title != "第一条问题" || detail.Conversation.MessageCount != 4 {
+		t.Fatalf("conversation metadata = %+v", detail.Conversation)
+	}
+
+	if len(model.Requests) != 2 {
+		t.Fatalf("model requests = %d", len(model.Requests))
+	}
+	first := model.Requests[0].Messages
+	second := model.Requests[1].Messages
+	if len(first) >= len(second) {
+		t.Fatalf("second request did not append: first=%d second=%d", len(first), len(second))
+	}
+	for index := range first {
+		if first[index].Role != second[index].Role ||
+			first[index].Text() != second[index].Text() {
+			t.Fatalf(
+				"cached prefix changed at message %d:\nfirst=%+v\nsecond=%+v",
+				index,
+				first[index],
+				second[index],
+			)
+		}
+	}
+	if model.Requests[1].Options.SessionID != conversationID {
+		t.Fatalf("prompt cache key = %q", model.Requests[1].Options.SessionID)
+	}
+}
+
+func textTurn(text string) faux.Turn {
+	return faux.Turn{Events: []ai.Event{
+		{Type: ai.EventStart},
+		{Type: ai.EventTextDelta, TextDelta: text},
+		{Type: ai.EventDone, StopReason: ai.StopReasonStop},
+	}}
 }
 
 func TestRunRejectsInvalidReasoningEffort(t *testing.T) {

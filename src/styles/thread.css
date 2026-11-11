@@ -27,6 +27,11 @@
   margin-bottom: 0;
 }
 
+.thread-anchor-spacer {
+  flex: none;
+  pointer-events: none;
+}
+
 .message {
   display: flex;
   width: 100%;
@@ -36,16 +41,72 @@
   justify-content: flex-end;
 }
 
-.user-bubble {
+.user-message {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
   max-width: min(78%, 560px);
+  min-width: 0;
+}
+
+.user-bubble {
+  position: relative;
+  max-width: 100%;
   padding: 10px var(--space-4);
-  overflow-wrap: anywhere;
   color: var(--text);
   font-size: var(--text-16);
   line-height: 1.6;
-  white-space: pre-wrap;
   background: var(--user-bubble);
   border-radius: var(--radius-4);
+}
+
+.user-bubble-text {
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.user-bubble.collapsed {
+  max-height: 320px;
+  overflow: hidden;
+}
+
+.user-bubble.collapsed::after {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 72px;
+  background: linear-gradient(to bottom, transparent, var(--user-bubble) 72%);
+  pointer-events: none;
+  content: "";
+}
+
+.user-bubble-toggle {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  height: 28px;
+  margin: var(--space-1) 0 0 auto;
+  padding: 0 var(--space-2);
+  color: var(--text-tertiary);
+  font-size: var(--text-12);
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-1);
+}
+
+.user-bubble.collapsed .user-bubble-toggle {
+  position: absolute;
+  right: 50%;
+  bottom: var(--space-1);
+  z-index: 1;
+  margin: 0;
+  transform: translateX(50%);
+}
+
+.user-bubble-toggle:hover {
+  color: var(--text-secondary);
+  background: var(--bg-hover);
 }
 
 .message.assistant {
@@ -62,6 +123,10 @@
   font-size: var(--text-16);
   line-height: 1.75;
   overflow-wrap: anywhere;
+}
+
+.genui + .assistant-text {
+  margin-top: var(--space-4);
 }
 
 .message-actions {
@@ -127,7 +192,7 @@
   flex-direction: column;
   gap: var(--space-5);
   width: 100%;
-  max-width: var(--thread-max);
+  max-width: var(--composer-max);
   margin: 0 auto;
 }
 

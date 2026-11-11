@@ -1,7 +1,8 @@
+import { parseAssistantAnswer } from "../genui/stream";
 import type { ToolResultView, UIMessage } from "../mygo";
 import { shortArguments } from "./format";
 import { activePlanStep, PLAN_TOOL_NAME, parsePlan } from "./plan";
-import type { PlanStep, PlanView, RunView, ToolRun } from "./types";
+import type { AssistantSegment, PlanStep, PlanView, RunView, ToolRun, UISpecView } from "./types";
 
 export type ThreadItem =
   | { kind: "user"; key: string; message: UIMessage }
@@ -20,6 +21,9 @@ export type Activity = {
 export type AssistantTurnView = {
   activity: Activity;
   answer: string;
+  spec: UISpecView | null;
+  segments: AssistantSegment[];
+  messageIndex?: number;
   error?: string;
   streaming: boolean;
   thinkingDurationMs?: number;
@@ -95,9 +99,14 @@ export function buildCompletedTurn(
     break;
   }
 
+  const rawAnswer = answerMessage ? answerText(answerMessage) : "";
+  const parsed = parseAssistantAnswer(rawAnswer);
   return {
     activity: completedActivity(messages, toolResults),
-    answer: answerMessage ? answerText(answerMessage) : "",
+    answer: parsed.text,
+    spec: parsed.spec,
+    segments: parsed.segments,
+    messageIndex: answerMessage?.index,
     streaming: false,
     thinkingDurationMs: answerMessage?.thinkingDurationMs,
   };
@@ -217,15 +226,18 @@ export function buildLiveTurn(run: RunView): AssistantTurnView {
     items.push({ kind: "tool", key: part.id, tool: part.tool });
   }
 
-  const answer = run.parts
+  const rawAnswer = run.parts
     .slice(boundary + 1)
     .filter((part) => part.kind === "text")
     .map((part) => (part.kind === "text" ? part.text : ""))
     .join("");
+  const parsed = parseAssistantAnswer(rawAnswer, { streaming: run.status === "running" });
 
   return {
     activity: { items, plan },
-    answer,
+    answer: parsed.text,
+    spec: parsed.spec,
+    segments: parsed.segments,
     error: run.error,
     streaming: run.status === "running",
     thinkingDurationMs:

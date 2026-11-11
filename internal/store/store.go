@@ -71,14 +71,19 @@ type entry struct {
 	Message            *ai.Message `json:"message,omitempty"`
 	Usage              *ai.Usage   `json:"usage,omitempty"`
 	ThinkingDurationMS int64       `json:"thinkingDurationMs,omitempty"`
+	ContextKind        string      `json:"contextKind,omitempty"`
+	ContextHash        string      `json:"contextHash,omitempty"`
 }
 
 // MessageRecord is a stored message together with the metadata needed to
-// restore how long the assistant worked before it started answering.
+// restore how long the assistant worked before it started answering. Context
+// records are injected into model history but hidden from the conversation UI.
 type MessageRecord struct {
 	Message            ai.Message
 	Timestamp          time.Time
 	ThinkingDurationMS int64
+	ContextKind        string
+	ContextHash        string
 }
 
 // Store serializes access to the index and conversation files.
@@ -380,6 +385,24 @@ func (s *Store) AppendUsage(id string, usage ai.Usage) error {
 	return s.appendEntry(id, item)
 }
 
+// AppendContext stores an app-injected context message in model history
+// without changing user-visible conversation metadata.
+func (s *Store) AppendContext(id, kind, hash string, message ai.Message) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.find(id) < 0 {
+		return fmt.Errorf("会话不存在")
+	}
+	item := entry{
+		Type:        "message",
+		Timestamp:   time.Now().UTC(),
+		Message:     &message,
+		ContextKind: kind,
+		ContextHash: hash,
+	}
+	return s.appendEntry(id, item)
+}
+
 // Rename updates a conversation title.
 func (s *Store) Rename(id, title string) error {
 	s.mu.Lock()
@@ -674,7 +697,7 @@ func (s *Store) readRecords(id string) (Conversation, []MessageRecord, error) {
 			info.ProjectID = item.ProjectID
 			continue
 		}
-		if item.Timestamp.After(info.UpdatedAt) {
+		if item.ContextKind == "" && item.Timestamp.After(info.UpdatedAt) {
 			info.UpdatedAt = item.Timestamp
 		}
 		if item.Message == nil {
@@ -684,7 +707,12 @@ func (s *Store) readRecords(id string) (Conversation, []MessageRecord, error) {
 			Message:            *item.Message,
 			Timestamp:          item.Timestamp,
 			ThinkingDurationMS: item.ThinkingDurationMS,
+			ContextKind:        item.ContextKind,
+			ContextHash:        item.ContextHash,
 		})
+		if item.ContextKind != "" {
+			continue
+		}
 		if item.Message.Role != ai.RoleSystem {
 			info.MessageCount++
 		}

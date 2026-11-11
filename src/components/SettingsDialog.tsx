@@ -76,6 +76,7 @@ export function SettingsDialog({
         searchProvider: draft.searchProvider,
         tavilyApiKey: draft.tavilyApiKey,
         responseStyle: draft.responseStyle,
+        personality: draft.personality,
         warmth: draft.warmth,
         enthusiasm: draft.enthusiasm,
         emoji: draft.emoji,
@@ -83,6 +84,7 @@ export function SettingsDialog({
         memoryEnabled: draft.memoryEnabled,
         memorySummaryEnabled: draft.memorySummaryEnabled,
         memorySearchEnabled: draft.memorySearchEnabled,
+        intelligentUIEnabled: draft.intelligentUIEnabled,
       });
       setField("apiKey", "");
       setField("tavilyApiKey", "");
@@ -184,6 +186,7 @@ function createDraft(settings: View): SettingsDraft {
     tavilyApiKey: "",
     showTavilyKey: false,
     responseStyle: settings.responseStyle,
+    personality: settings.personality,
     warmth: settings.warmth,
     enthusiasm: settings.enthusiasm,
     emoji: settings.emoji,
@@ -191,5 +194,6 @@ function createDraft(settings: View): SettingsDraft {
     memoryEnabled: settings.memoryEnabled,
     memorySummaryEnabled: settings.memorySummaryEnabled,
     memorySearchEnabled: settings.memorySearchEnabled,
+    intelligentUIEnabled: settings.intelligentUIEnabled,
   };
 }

@@ -1,7 +1,16 @@
-import { Field, SegmentedControl } from "../../ui";
+import { Field, SegmentedControl, Switch } from "../../ui";
 import type { SetDraftField, SettingsDraft } from "./types";
 
 type PreferenceKey = "responseStyle" | "warmth" | "enthusiasm" | "emoji";
+
+const personalities = [
+  { value: "professional", label: "专业 · Professional" },
+  { value: "friendly", label: "友好 · Friendly" },
+  { value: "candid", label: "坦率 · Candid" },
+  { value: "quirky", label: "奇趣 · Quirky" },
+  { value: "efficient", label: "高效 · Efficient" },
+  { value: "cynical", label: "冷幽默 · Cynical" },
+] as const;
 
 const preferences: Array<{
   key: PreferenceKey;
@@ -66,6 +75,28 @@ export function PersonalizationSettings({ draft, setField }: PersonalizationSett
             />
           )}
         </Field>
+      </section>
+
+      <section className="settings-group">
+        <h3 className="settings-group-title">人格</h3>
+        <p className="settings-description">决定 Mira 的默认语气。下面的表达方式会继续细化它。</p>
+        <SegmentedControl
+          label="人格"
+          value={draft.personality}
+          options={personalities}
+          className="personality-grid"
+          optionClassName="personality-option"
+          onChange={(value) => setField("personality", value)}
+        />
+      </section>
+
+      <section className="settings-group">
+        <Switch
+          checked={draft.intelligentUIEnabled}
+          title="智能界面"
+          description="让 Mira 在回答中生成表格、图表和可交互组件。"
+          onChange={() => setField("intelligentUIEnabled", !draft.intelligentUIEnabled)}
+        />
       </section>
 
       <section className="settings-group">

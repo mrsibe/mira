@@ -35,6 +35,13 @@ const (
 	EmojiSparing  = "sparing"
 	EmojiFrequent = "frequent"
 
+	PersonalityProfessional = "professional"
+	PersonalityFriendly     = "friendly"
+	PersonalityCandid       = "candid"
+	PersonalityQuirky       = "quirky"
+	PersonalityEfficient    = "efficient"
+	PersonalityCynical      = "cynical"
+
 	DefaultBaseURL = "https://api.openai.com/v1"
 	DefaultModel   = "gpt-5"
 
@@ -69,6 +76,7 @@ type Settings struct {
 	SearchProvider       string `json:"searchProvider,omitempty"`
 	TavilyAPIKey         string `json:"-"`
 	ResponseStyle        string `json:"responseStyle,omitempty"`
+	Personality          string `json:"personality,omitempty"`
 	Warmth               string `json:"warmth,omitempty"`
 	Enthusiasm           string `json:"enthusiasm,omitempty"`
 	Emoji                string `json:"emoji,omitempty"`
@@ -76,12 +84,13 @@ type Settings struct {
 	MemoryEnabled        bool   `json:"memoryEnabled"`
 	MemorySummaryEnabled bool   `json:"memorySummaryEnabled"`
 	MemorySearchEnabled  bool   `json:"memorySearchEnabled"`
+	IntelligentUIEnabled bool   `json:"intelligentUIEnabled"`
 }
 
 // Input is the frontend-safe update payload. An empty APIKey keeps the
 // existing key. A nil UserName keeps the existing display name. A nil
 // WebSearchEnabled keeps the existing value. An empty TavilyAPIKey keeps the
-// existing Tavily key.
+// existing Tavily key. A nil IntelligentUIEnabled keeps the existing value.
 type Input struct {
 	BaseURL              string  `json:"baseUrl"`
 	APIKey               string  `json:"apiKey"`
@@ -92,6 +101,7 @@ type Input struct {
 	SearchProvider       string  `json:"searchProvider"`
 	TavilyAPIKey         string  `json:"tavilyApiKey"`
 	ResponseStyle        string  `json:"responseStyle"`
+	Personality          string  `json:"personality"`
 	Warmth               string  `json:"warmth"`
 	Enthusiasm           string  `json:"enthusiasm"`
 	Emoji                string  `json:"emoji"`
@@ -99,6 +109,7 @@ type Input struct {
 	MemoryEnabled        *bool   `json:"memoryEnabled,omitempty"`
 	MemorySummaryEnabled *bool   `json:"memorySummaryEnabled,omitempty"`
 	MemorySearchEnabled  *bool   `json:"memorySearchEnabled,omitempty"`
+	IntelligentUIEnabled *bool   `json:"intelligentUIEnabled,omitempty"`
 }
 
 // View is returned to the frontend. The API key is deliberately omitted.
@@ -118,6 +129,7 @@ type View struct {
 	KeychainAvailable    bool   `json:"keychainAvailable"`
 	KeychainError        string `json:"keychainError,omitempty"`
 	ResponseStyle        string `json:"responseStyle"`
+	Personality          string `json:"personality"`
 	Warmth               string `json:"warmth"`
 	Enthusiasm           string `json:"enthusiasm"`
 	Emoji                string `json:"emoji"`
@@ -125,6 +137,7 @@ type View struct {
 	MemoryEnabled        bool   `json:"memoryEnabled"`
 	MemorySummaryEnabled bool   `json:"memorySummaryEnabled"`
 	MemorySearchEnabled  bool   `json:"memorySearchEnabled"`
+	IntelligentUIEnabled bool   `json:"intelligentUIEnabled"`
 }
 
 // Manager owns the settings file and keeps a validated snapshot in memory.
@@ -152,9 +165,11 @@ func NewManager(dir string, secrets SecretStore) (*Manager, error) {
 		Protocol:             firstNonEmpty(os.Getenv("MIRA_PROTOCOL"), ProtocolResponses),
 		WebSearchEnabled:     true,
 		SearchProvider:       DefaultSearchProvider,
+		Personality:          PersonalityFriendly,
 		MemoryEnabled:        true,
 		MemorySummaryEnabled: true,
 		MemorySearchEnabled:  true,
+		IntelligentUIEnabled: true,
 	}
 
 	m := &Manager{
@@ -172,9 +187,11 @@ func NewManager(dir string, secrets SecretStore) (*Manager, error) {
 		saved := Settings{
 			WebSearchEnabled:     true,
 			SearchProvider:       DefaultSearchProvider,
+			Personality:          PersonalityFriendly,
 			MemoryEnabled:        true,
 			MemorySummaryEnabled: true,
 			MemorySearchEnabled:  true,
+			IntelligentUIEnabled: true,
 		}
 		if err := json.Unmarshal(data, &saved); err != nil {
 			m.loadErr = fmt.Errorf("parse %s: %w", path, err)
@@ -194,6 +211,7 @@ func NewManager(dir string, secrets SecretStore) (*Manager, error) {
 				settings.SearchProvider = saved.SearchProvider
 			}
 			settings.ResponseStyle = saved.ResponseStyle
+			settings.Personality = saved.Personality
 			settings.Warmth = saved.Warmth
 			settings.Enthusiasm = saved.Enthusiasm
 			settings.Emoji = saved.Emoji
@@ -201,6 +219,7 @@ func NewManager(dir string, secrets SecretStore) (*Manager, error) {
 			settings.MemoryEnabled = saved.MemoryEnabled
 			settings.MemorySummaryEnabled = saved.MemorySummaryEnabled
 			settings.MemorySearchEnabled = saved.MemorySearchEnabled
+			settings.IntelligentUIEnabled = saved.IntelligentUIEnabled
 		}
 	case !errors.Is(err, os.ErrNotExist):
 		m.loadErr = fmt.Errorf("read %s: %w", path, err)
@@ -312,6 +331,9 @@ func (m *Manager) Save(input Input) (View, error) {
 	if value := strings.TrimSpace(input.ResponseStyle); value != "" {
 		next.ResponseStyle = value
 	}
+	if value := strings.TrimSpace(input.Personality); value != "" {
+		next.Personality = value
+	}
 	if value := strings.TrimSpace(input.Warmth); value != "" {
 		next.Warmth = value
 	}
@@ -332,6 +354,9 @@ func (m *Manager) Save(input Input) (View, error) {
 	}
 	if input.MemorySearchEnabled != nil {
 		next.MemorySearchEnabled = *input.MemorySearchEnabled
+	}
+	if input.IntelligentUIEnabled != nil {
+		next.IntelligentUIEnabled = *input.IntelligentUIEnabled
 	}
 	next = normalized(next)
 	if err := validate(next); err != nil {
@@ -475,6 +500,7 @@ func (m *Manager) viewLocked() View {
 		KeychainAvailable:    m.keychainAvailable,
 		KeychainError:        m.keychainError,
 		ResponseStyle:        m.settings.ResponseStyle,
+		Personality:          m.settings.Personality,
 		Warmth:               m.settings.Warmth,
 		Enthusiasm:           m.settings.Enthusiasm,
 		Emoji:                m.settings.Emoji,
@@ -482,6 +508,7 @@ func (m *Manager) viewLocked() View {
 		MemoryEnabled:        m.settings.MemoryEnabled,
 		MemorySummaryEnabled: m.settings.MemorySummaryEnabled,
 		MemorySearchEnabled:  m.settings.MemorySearchEnabled,
+		IntelligentUIEnabled: m.settings.IntelligentUIEnabled,
 	}
 }
 
@@ -508,6 +535,10 @@ func normalized(settings Settings) Settings {
 	settings.ResponseStyle = strings.ToLower(strings.TrimSpace(settings.ResponseStyle))
 	if settings.ResponseStyle == "" {
 		settings.ResponseStyle = ResponseStyleConcise
+	}
+	settings.Personality = strings.ToLower(strings.TrimSpace(settings.Personality))
+	if settings.Personality == "" {
+		settings.Personality = PersonalityFriendly
 	}
 	settings.Warmth = strings.ToLower(strings.TrimSpace(settings.Warmth))
 	if settings.Warmth == "" {
@@ -556,6 +587,17 @@ func validate(settings Settings) error {
 	}
 	if !oneOf(settings.ResponseStyle, ResponseStyleConcise, ResponseStyleBalanced, ResponseStyleDetailed) {
 		return fmt.Errorf("不支持的回答风格: %q", settings.ResponseStyle)
+	}
+	if !oneOf(
+		settings.Personality,
+		PersonalityProfessional,
+		PersonalityFriendly,
+		PersonalityCandid,
+		PersonalityQuirky,
+		PersonalityEfficient,
+		PersonalityCynical,
+	) {
+		return fmt.Errorf("不支持的人格: %q", settings.Personality)
 	}
 	if !oneOf(settings.Warmth, WarmthReserved, WarmthBalanced, WarmthFriendly) {
 		return fmt.Errorf("不支持的亲切程度: %q", settings.Warmth)

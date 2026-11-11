@@ -126,6 +126,54 @@ func TestThinkingDurationRoundTrip(t *testing.T) {
 	}
 }
 
+func TestContextRecordsAreHiddenFromConversationMetadata(t *testing.T) {
+	dir := t.TempDir()
+	conversations, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	created, err := conversations.Create()
+	if err != nil {
+		t.Fatal(err)
+	}
+	context := ai.TextMessage(ai.RoleUser, "<mira_context>hidden</mira_context>")
+	if err := conversations.AppendContext(created.ID, "memory", "hash-1", context); err != nil {
+		t.Fatal(err)
+	}
+	if err := conversations.Append(created.ID, ai.TextMessage(ai.RoleUser, "真正的问题")); err != nil {
+		t.Fatal(err)
+	}
+
+	conversation, records, err := conversations.GetRecords(created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != 2 || records[0].ContextKind != "memory" ||
+		records[0].ContextHash != "hash-1" {
+		t.Fatalf("records = %+v", records)
+	}
+	if conversation.Title != "真正的问题" || conversation.MessageCount != 1 ||
+		conversation.Preview != "真正的问题" {
+		t.Fatalf("conversation metadata = %+v", conversation)
+	}
+
+	reopened, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	list := reopened.List()
+	if len(list) != 1 || list[0].Title != "真正的问题" || list[0].MessageCount != 1 {
+		t.Fatalf("reloaded metadata = %+v", list)
+	}
+	_, messages, err := reopened.Get(created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(messages) != 2 || messages[0].Text() != context.Text() {
+		t.Fatalf("model history = %+v", messages)
+	}
+}
+
 func mustOpenStore(t *testing.T, dir string) *Store {
 	t.Helper()
 	store, err := Open(dir)

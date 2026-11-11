@@ -3,7 +3,7 @@
 .composer-zone {
   flex: none;
   width: 100%;
-  max-width: var(--thread-max);
+  max-width: var(--composer-max);
   margin: 0 auto;
   padding: 0 var(--space-5) var(--space-5);
 }

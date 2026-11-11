@@ -12,6 +12,7 @@
   --sidebar-width: 320px;
   --titlebar-height: 48px;
   --thread-max: 768px;
+  --composer-max: 880px;
 
   --space-1: 4px;
   --space-2: 8px;
@@ -63,6 +64,11 @@
   --warning-soft: #fff8e6;
   --warning-border: #efd9a7;
   --backdrop: rgba(0, 0, 0, 0.35);
+  --chart-1: #2563eb;
+  --chart-2: #0f9f6e;
+  --chart-3: #d97706;
+  --chart-4: #7c3aed;
+  --chart-5: #64748b;
 
   --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.04);
   --shadow-2: 0 1px 2px rgba(0, 0, 0, 0.04), 0 2px 6px rgba(0, 0, 0, 0.06);
@@ -103,6 +109,11 @@
   --warning-soft: rgba(245, 166, 35, 0.12);
   --warning-border: rgba(245, 166, 35, 0.32);
   --backdrop: rgba(0, 0, 0, 0.6);
+  --chart-1: #7ab8ff;
+  --chart-2: #4ade80;
+  --chart-3: #fbbf24;
+  --chart-4: #c4b5fd;
+  --chart-5: #94a3b8;
 
   --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.3);
   --shadow-2: 0 1px 2px rgba(0, 0, 0, 0.35), 0 2px 8px rgba(0, 0, 0, 0.25);
