@@ -16,15 +16,18 @@ describe("sidebar width", () => {
 
   it("keeps the preferred width within the allowed range", () => {
     expect(preferredSidebarWidth(100)).toBe(260);
-    expect(preferredSidebarWidth(999)).toBe(480);
+    expect(preferredSidebarWidth(999)).toBe(999);
     expect(preferredSidebarWidth(Number.NaN)).toBe(defaultSidebarWidth);
   });
 
-  it("reserves space for the main content on narrow windows", () => {
-    expect(maxSidebarWidthForViewport(1200)).toBe(480);
-    expect(maxSidebarWidthForViewport(900)).toBe(300);
-    expect(maxSidebarWidthForViewport(700)).toBe(260);
-    expect(clampSidebarWidthForViewport(480, 900)).toBe(300);
+  it("allows the sidebar to grow to half of the viewport", () => {
+    expect(maxSidebarWidthForViewport(1920)).toBe(960);
+    expect(maxSidebarWidthForViewport(1200)).toBe(600);
+    expect(maxSidebarWidthForViewport(900)).toBe(450);
+    expect(maxSidebarWidthForViewport(700)).toBe(350);
+    expect(maxSidebarWidthForViewport(400)).toBe(260);
+    expect(clampSidebarWidthForViewport(900, 1200)).toBe(600);
+    expect(clampSidebarWidthForViewport(480, 900)).toBe(450);
   });
 
   it("loads and saves the preferred width", () => {

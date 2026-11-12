@@ -61,8 +61,24 @@ func TestConversationLifecycleAndReload(t *testing.T) {
 		messages[1].Text() != assistant.Text() {
 		t.Fatalf("messages = %+v", messages)
 	}
+	beforeRename, _, err := conversations.Get(created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(2 * time.Millisecond)
 	if err := conversations.Rename(created.ID, "  Go basics  "); err != nil {
 		t.Fatal(err)
+	}
+	afterRename, _, err := conversations.Get(created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !afterRename.UpdatedAt.Equal(beforeRename.UpdatedAt) {
+		t.Fatalf(
+			"rename changed recency from %s to %s",
+			beforeRename.UpdatedAt,
+			afterRename.UpdatedAt,
+		)
 	}
 
 	reopened, err := Open(dir)

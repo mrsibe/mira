@@ -1,6 +1,7 @@
 import {
   ChevronRight,
   Folder,
+  FolderInput,
   MoreHorizontal,
   Plus,
   Search,
@@ -9,6 +10,7 @@ import {
   X,
 } from "lucide-react";
 import {
+  type DragEvent as ReactDragEvent,
   type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
@@ -18,6 +20,12 @@ import {
   useState,
 } from "react";
 import { buildSidebarModel } from "../lib/sidebar";
+import {
+  type ConversationDrag,
+  canDropConversation,
+  conversationDragMime,
+  conversationProjectID,
+} from "../lib/sidebarDrag";
 import {
   applySidebarWidth,
   clampSidebarWidthForViewport,
@@ -79,14 +87,34 @@ export function Sidebar({
   const [viewportWidth, setViewportWidth] = useState(() => window.innerWidth);
   const [preferredSidebarWidth, setPreferredSidebarWidth] = useState(loadPreferredSidebarWidth);
   const [resizing, setResizing] = useState(false);
+  const [dragging, setDragging] = useState<ConversationDrag | null>(null);
+  const [dropTarget, setDropTarget] = useState<string | null>(null);
   const sidebarWidth = clampSidebarWidthForViewport(preferredSidebarWidth, viewportWidth);
   const sidebarWidthRef = useRef(sidebarWidth);
   const dragRef = useRef<{ startX: number; startWidth: number } | null>(null);
+  const conversationDragRef = useRef<ConversationDrag | null>(null);
+  const dropTargetRef = useRef<string | null>(null);
+  const expandTimerRef = useRef<number | undefined>(undefined);
+  const listRef = useRef<HTMLElement>(null);
+  const scrollFrameRef = useRef<number | null>(null);
+  const scrollSpeedRef = useRef(0);
   sidebarWidthRef.current = sidebarWidth;
 
   useEffect(() => {
     if (editingId) inputRef.current?.focus();
   }, [editingId]);
+
+  useEffect(() => {
+    return () => {
+      if (expandTimerRef.current !== undefined) {
+        window.clearTimeout(expandTimerRef.current);
+      }
+      if (scrollFrameRef.current !== null && typeof cancelAnimationFrame === "function") {
+        cancelAnimationFrame(scrollFrameRef.current);
+      }
+      document.body.classList.remove("conversation-dragging");
+    };
+  }, []);
 
   useEffect(() => {
     applySidebarWidth(sidebarWidth);
@@ -142,6 +170,8 @@ export function Sidebar({
     (group) => !model.searching || group.items.length > 0,
   );
   const unfiledCount = model.unfiled.reduce((total, [, items]) => total + items.length, 0);
+  const canUnfile = dragging !== null && dragging.sourceProjectID !== "";
+  const showUnfiledRegion = model.unfiled.length > 0 || canUnfile;
 
   function startRename(item: Conversation) {
     setEditingId(item.id);
@@ -171,6 +201,159 @@ export function Sidebar({
       next.delete(id);
       return next;
     });
+  }
+
+  function updateDropTarget(projectID: string | null) {
+    dropTargetRef.current = projectID;
+    setDropTarget(projectID);
+  }
+
+  function cancelExpand() {
+    if (expandTimerRef.current === undefined) return;
+    window.clearTimeout(expandTimerRef.current);
+    expandTimerRef.current = undefined;
+  }
+
+  function scheduleExpand(projectID: string) {
+    if (!collapsed.has(projectID) || expandTimerRef.current !== undefined) return;
+    expandTimerRef.current = window.setTimeout(() => {
+      expandTimerRef.current = undefined;
+      expandProject(projectID);
+    }, 650);
+  }
+
+  function stopAutoScroll() {
+    scrollSpeedRef.current = 0;
+    if (scrollFrameRef.current !== null && typeof cancelAnimationFrame === "function") {
+      cancelAnimationFrame(scrollFrameRef.current);
+    }
+    scrollFrameRef.current = null;
+  }
+
+  function tickAutoScroll() {
+    const list = listRef.current;
+    if (!list || scrollSpeedRef.current === 0) {
+      scrollFrameRef.current = null;
+      return;
+    }
+    const before = list.scrollTop;
+    list.scrollTop = before + scrollSpeedRef.current;
+    if (list.scrollTop === before) {
+      scrollFrameRef.current = null;
+      return;
+    }
+    scrollFrameRef.current = requestAnimationFrame(tickAutoScroll);
+  }
+
+  function updateAutoScroll(event: ReactDragEvent<HTMLElement>) {
+    const list = listRef.current;
+    if (!list) return;
+    const rect = list.getBoundingClientRect();
+    if (rect.height <= 0) return;
+    const threshold = Math.min(48, rect.height / 4);
+    let speed = 0;
+    if (event.clientY < rect.top + threshold) speed = -8;
+    else if (event.clientY > rect.bottom - threshold) speed = 8;
+    scrollSpeedRef.current = speed;
+    if (speed === 0) {
+      stopAutoScroll();
+      return;
+    }
+    if (scrollFrameRef.current === null && typeof requestAnimationFrame === "function") {
+      scrollFrameRef.current = requestAnimationFrame(tickAutoScroll);
+    }
+  }
+
+  function finishConversationDrag() {
+    conversationDragRef.current = null;
+    setDragging(null);
+    updateDropTarget(null);
+    cancelExpand();
+    stopAutoScroll();
+    document.body.classList.remove("conversation-dragging");
+  }
+
+  function beginConversationDrag(
+    event: ReactDragEvent<HTMLButtonElement>,
+    conversation: Conversation,
+  ) {
+    if (model.searching) {
+      event.preventDefault();
+      return;
+    }
+    const drag: ConversationDrag = {
+      conversationID: conversation.id,
+      sourceProjectID: conversationProjectID(conversation),
+    };
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData(conversationDragMime, conversation.id);
+    event.dataTransfer.setData("text/plain", conversation.title);
+    conversationDragRef.current = drag;
+    setDragging(drag);
+    updateDropTarget(null);
+    setMenu(null);
+    document.body.classList.add("conversation-dragging");
+  }
+
+  function dragOverProject(event: ReactDragEvent<HTMLElement>, projectID: string) {
+    if (!canDropConversation(conversationDragRef.current, projectID)) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "move";
+    if (dropTargetRef.current !== projectID) {
+      cancelExpand();
+      updateDropTarget(projectID);
+    }
+    scheduleExpand(projectID);
+    updateAutoScroll(event);
+  }
+
+  function dragLeaveProject(event: ReactDragEvent<HTMLElement>, projectID: string) {
+    const related = event.relatedTarget;
+    if (related instanceof Node && event.currentTarget.contains(related)) return;
+    if (dropTargetRef.current === projectID) updateDropTarget(null);
+    cancelExpand();
+    stopAutoScroll();
+  }
+
+  function dropOnProject(event: ReactDragEvent<HTMLElement>, projectID: string) {
+    event.preventDefault();
+    event.stopPropagation();
+    const drag = conversationDragRef.current;
+    if (!drag || !canDropConversation(drag, projectID)) {
+      finishConversationDrag();
+      return;
+    }
+    finishConversationDrag();
+    void onMove(drag.conversationID, projectID).then((moved) => {
+      if (moved) expandProject(projectID);
+    });
+  }
+
+  function dragOverUnfiled(event: ReactDragEvent<HTMLElement>) {
+    if (!canDropConversation(conversationDragRef.current, "")) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "move";
+    cancelExpand();
+    if (dropTargetRef.current !== "") updateDropTarget("");
+    updateAutoScroll(event);
+  }
+
+  function dragLeaveUnfiled(event: ReactDragEvent<HTMLElement>) {
+    const related = event.relatedTarget;
+    if (related instanceof Node && event.currentTarget.contains(related)) return;
+    if (dropTargetRef.current === "") updateDropTarget(null);
+    stopAutoScroll();
+  }
+
+  function dropOnUnfiled(event: ReactDragEvent<HTMLElement>) {
+    event.preventDefault();
+    const drag = conversationDragRef.current;
+    if (!drag || !canDropConversation(drag, "")) {
+      finishConversationDrag();
+      return;
+    }
+    finishConversationDrag();
+    void onMove(drag.conversationID, "");
   }
 
   function openConversationMenu(event: ReactMouseEvent<HTMLButtonElement>, item: Conversation) {
@@ -225,7 +408,9 @@ export function Sidebar({
     return (
       <div
         key={item.id}
-        className={`conversation-item ${active ? "active" : ""} ${menuOpen ? "menu-open" : ""}`}
+        className={`conversation-item ${active ? "active" : ""} ${menuOpen ? "menu-open" : ""} ${
+          dragging?.conversationID === item.id ? "dragging" : ""
+        }`}
       >
         {editing ? (
           <input
@@ -243,9 +428,12 @@ export function Sidebar({
           <button
             type="button"
             className="conversation-select"
+            draggable={!model.searching}
             aria-current={active ? "page" : undefined}
             onClick={() => onSelect(item.id)}
             onDoubleClick={() => startRename(item)}
+            onDragStart={(event) => beginConversationDrag(event, item)}
+            onDragEnd={finishConversationDrag}
             title={item.title}
           >
             <span>{item.title}</span>
@@ -291,7 +479,7 @@ export function Sidebar({
         )}
       </label>
 
-      <nav className="conversation-list" aria-label="对话与项目列表">
+      <nav ref={listRef} className="conversation-list" aria-label="对话与项目列表">
         <div className="sidebar-section-head">
           <h2>项目</h2>
           <IconButton
@@ -308,7 +496,14 @@ export function Sidebar({
           const hasActive = items.some((item) => item.id === activeId);
           const menuOpen = menu?.kind === "project" && menu.project.id === project.id;
           return (
-            <section key={project.id} className="project-group">
+            // biome-ignore lint/a11y/noStaticElementInteractions: drag targets are pointer-only; project actions remain available through buttons and menus
+            <section
+              key={project.id}
+              className={`project-group ${dropTarget === project.id ? "drop-target" : ""}`}
+              onDragOver={(event) => dragOverProject(event, project.id)}
+              onDragLeave={(event) => dragLeaveProject(event, project.id)}
+              onDrop={(event) => dropOnProject(event, project.id)}
+            >
               <div
                 className={`project-row ${hasActive ? "has-active" : ""} ${menuOpen ? "menu-open" : ""}`}
               >
@@ -367,12 +562,30 @@ export function Sidebar({
           <p className="sidebar-empty compact">还没有项目</p>
         )}
 
-        {model.unfiled.map(([label, items]) => (
-          <section key={label} className="conversation-group">
-            <h2>{label}</h2>
-            {items.map(renderConversation)}
-          </section>
-        ))}
+        {showUnfiledRegion && (
+          // biome-ignore lint/a11y/noStaticElementInteractions: the unfiled region becomes a pointer-only drop target during drag; the move menu remains the accessible alternative
+          <div
+            className={`unfiled-region ${canUnfile ? "drag-ready" : ""} ${
+              dropTarget === "" ? "drop-target" : ""
+            }`}
+            onDragOver={dragOverUnfiled}
+            onDragLeave={dragLeaveUnfiled}
+            onDrop={dropOnUnfiled}
+          >
+            {canUnfile && (
+              <div className="unfiled-drop-label">
+                <FolderInput size={15} aria-hidden="true" />
+                <span>拖到这里移出项目</span>
+              </div>
+            )}
+            {model.unfiled.map(([label, items]) => (
+              <section key={label} className="conversation-group">
+                <h2>{label}</h2>
+                {items.map(renderConversation)}
+              </section>
+            ))}
+          </div>
+        )}
 
         {model.searching && visibleProjects.length === 0 && unfiledCount === 0 && (
           <p className="sidebar-empty">没有匹配的对话</p>

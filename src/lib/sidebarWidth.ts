@@ -1,15 +1,14 @@
 export const sidebarWidthStorageKey = "mira-sidebar-width";
 export const defaultSidebarWidth = 320;
 export const minSidebarWidth = 260;
-export const maxSidebarWidth = 480;
 
 export function preferredSidebarWidth(value: number): number {
   if (!Number.isFinite(value)) return defaultSidebarWidth;
-  return Math.min(maxSidebarWidth, Math.max(minSidebarWidth, Math.round(value)));
+  return Math.max(minSidebarWidth, Math.round(value));
 }
 
 export function maxSidebarWidthForViewport(viewportWidth: number): number {
-  return Math.max(minSidebarWidth, Math.min(maxSidebarWidth, viewportWidth - 600));
+  return Math.max(minSidebarWidth, Math.round(viewportWidth / 2));
 }
 
 export function clampSidebarWidthForViewport(width: number, viewportWidth: number): number {

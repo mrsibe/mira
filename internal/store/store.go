@@ -416,7 +416,6 @@ func (s *Store) Rename(id, title string) error {
 		title = defaultTitle
 	}
 	s.entries[index].Title = truncate(title, 80)
-	s.entries[index].UpdatedAt = time.Now().UTC()
 	return s.writeIndex(s.entries)
 }
 
