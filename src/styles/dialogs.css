@@ -39,6 +39,186 @@ dialog.modal.project-modal {
   width: min(440px, calc(100vw - var(--space-7)));
 }
 
+dialog.modal.search-modal {
+  width: min(620px, calc(100vw - var(--space-7)));
+  max-height: min(640px, calc(100dvh - var(--space-7)));
+  margin: min(12vh, 96px) auto auto;
+  overflow: hidden;
+}
+
+.search-dialog-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  height: 56px;
+  padding: 0 var(--space-3) 0 var(--space-5);
+  border-bottom: 1px solid var(--border);
+}
+
+.search-dialog-head > svg {
+  flex: none;
+  color: var(--text-tertiary);
+}
+
+.search-dialog-head input {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  padding: 0;
+  color: var(--text);
+  font-size: var(--text-16);
+  background: transparent;
+  border: 0;
+  outline: 0;
+}
+
+.search-dialog-head input:focus-visible {
+  outline: 0;
+}
+
+.search-dialog-head input::placeholder {
+  color: var(--text-tertiary);
+}
+
+.search-dialog-head input::-webkit-search-cancel-button {
+  display: none;
+}
+
+.search-dialog-clear {
+  width: 30px;
+  height: 30px;
+}
+
+.search-dialog-hint {
+  flex: none;
+  margin-right: var(--space-2);
+  padding: 2px 6px;
+  color: var(--text-tertiary);
+  font-family: var(--font-mono);
+  font-size: var(--text-12);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+}
+
+.search-dialog-body {
+  max-height: min(480px, calc(88dvh - 120px));
+  padding: var(--space-2);
+  overflow-y: auto;
+}
+
+.search-dialog-label {
+  margin: var(--space-1) 10px var(--space-1);
+  color: var(--text-tertiary);
+  font-size: var(--text-12);
+  font-weight: 500;
+}
+
+.search-results {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.search-result {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  min-height: 54px;
+  padding: 8px 10px;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-1);
+}
+
+.search-result:hover {
+  background: var(--bg-hover);
+}
+
+.search-result-copy {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.search-result-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.search-result-title {
+  color: var(--text);
+  font-size: var(--text-14);
+  font-weight: 500;
+}
+
+.search-result-snippet {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  color: var(--text-tertiary);
+  font-size: var(--text-12);
+  line-height: 1.4;
+}
+
+.search-result-role {
+  flex: none;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.search-result-snippet-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.search-result mark {
+  padding: 0 1px;
+  color: inherit;
+  background: var(--warning-soft);
+  border-radius: 2px;
+}
+
+.search-result-meta {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+}
+
+.search-result-matches {
+  color: var(--text-tertiary);
+  font-size: var(--text-12);
+  white-space: nowrap;
+}
+
+.search-result-project {
+  flex: none;
+  max-width: 120px;
+  padding: 2px 6px;
+  overflow: hidden;
+  color: var(--text-secondary);
+  font-size: var(--text-12);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  background: var(--bg-subtle);
+  border-radius: 5px;
+}
+
+.search-dialog-empty {
+  margin: var(--space-6) var(--space-3);
+  color: var(--text-tertiary);
+  font-size: var(--text-14);
+  text-align: center;
+}
+
 .project-form {
   display: flex;
   flex-direction: column;
@@ -109,7 +289,7 @@ dialog.modal.project-modal {
 .modal-head p {
   margin: 6px 0 0;
   color: var(--text-secondary);
-  font-size: 13px;
+  font-size: calc(13px * var(--text-scale));
   line-height: 1.55;
 }
 
@@ -399,7 +579,7 @@ dialog.modal.settings-modal {
   height: 30px;
   padding: 0 var(--space-2);
   color: var(--text-secondary);
-  font-size: 13px;
+  font-size: calc(13px * var(--text-scale));
   background: transparent;
   border: 0;
   border-radius: 6px;

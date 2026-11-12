@@ -144,7 +144,7 @@
 .tool-card {
   margin: 0 0 2px;
   overflow: visible;
-  font-size: 13px;
+  font-size: calc(13px * var(--text-scale));
   border: 0;
   border-radius: 0;
 }
@@ -174,7 +174,7 @@
   overflow: hidden;
   color: var(--text-tertiary);
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -183,7 +183,7 @@
   flex: none;
   margin-left: auto;
   color: var(--text-tertiary);
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
 }
 
 .tool-dot {

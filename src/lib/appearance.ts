@@ -217,8 +217,8 @@ export function applyAppearance(
   root.style.setProperty("--font-sans", resolveFontStack(appearance.interfaceFont, "interface"));
   root.style.setProperty("--font-chat", resolveFontStack(appearance.chatFont, "chat"));
   root.style.setProperty("--font-mono", resolveFontStack(appearance.codeFont, "code"));
-  root.style.setProperty("--chat-font-size", chatSizes[appearance.chatSize]);
-  root.style.setProperty("--code-font-size", codeSizes[appearance.codeSize]);
+  root.style.setProperty("--chat-font-base", chatSizes[appearance.chatSize]);
+  root.style.setProperty("--code-font-base", codeSizes[appearance.codeSize]);
 }
 
 export function applyStoredAppearance(): Appearance {

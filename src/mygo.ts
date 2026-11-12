@@ -44,6 +44,7 @@ export interface Conversation {
 export interface ConversationDetail {
   conversation: Conversation;
   messages: UIMessage[];
+  usage: UsageView;
 }
 
 /**
@@ -97,6 +98,15 @@ export interface SaveInput {
   revision: number;
 }
 
+/** SearchResult is one conversation matched by a full-text search. */
+export interface SearchResult {
+  conversation: Conversation;
+  messageIndex: number;
+  snippet?: string;
+  role?: string;
+  matchCount?: number;
+}
+
 /** SendOptions contains per-message request controls. */
 export interface SendOptions {
   reasoningEffort: string;
@@ -133,6 +143,7 @@ export interface UIMessage {
   toolName?: string;
   isError?: boolean;
   thinkingDurationMs?: number;
+  usage?: UsageView;
 }
 
 /** UpdateStatus is the frontend-safe state of the update service. */
@@ -149,6 +160,9 @@ export interface UpdateStatus {
 export interface UsageView {
   promptTokens: number;
   completionTokens: number;
+  cacheReadTokens?: number;
+  cacheWriteTokens?: number;
+  reasoningTokens?: number;
   totalTokens: number;
 }
 
@@ -216,6 +230,17 @@ export const Mira = {
   deleteProject(id: string): Promise<void> {
     return call("Mira.DeleteProject", id);
   },
+  /**
+   * EditMessage replaces one user message, discards everything after it and
+   * streams a fresh assistant response.
+   */
+  editMessage(conversationID: string, messageIndex: number, content: string, options: SendOptions, events: Channel<ChatEvent>): Promise<void> {
+    return call("Mira.EditMessage", conversationID, messageIndex, content, options, events);
+  },
+  /** ForkConversation copies a completed assistant turn into a new conversation. */
+  forkConversation(conversationID: string, messageIndex: number): Promise<ConversationDetail> {
+    return call("Mira.ForkConversation", conversationID, messageIndex);
+  },
   /** GetConversation loads a thread and its messages. */
   getConversation(id: string): Promise<ConversationDetail> {
     return call("Mira.GetConversation", id);
@@ -240,6 +265,13 @@ export const Mira = {
   moveConversation(id: string, projectID: string): Promise<void> {
     return call("Mira.MoveConversation", id, projectID);
   },
+  /**
+   * Regenerate reruns the assistant turn containing messageIndex. It keeps the
+   * preceding user message and discards that turn plus all later history.
+   */
+  regenerate(conversationID: string, messageIndex: number, options: SendOptions, events: Channel<ChatEvent>): Promise<void> {
+    return call("Mira.Regenerate", conversationID, messageIndex, options, events);
+  },
   /** RegenerateMemory rebuilds the memory summary now. */
   regenerateMemory(): Promise<MemoryView> {
     return call("Mira.RegenerateMemory");
@@ -259,6 +291,10 @@ export const Mira = {
   /** SaveSettings persists provider settings. */
   saveSettings(input: Input): Promise<View> {
     return call("Mira.SaveSettings", input);
+  },
+  /** SearchConversations searches titles, previews and visible message text. */
+  searchConversations(query: string): Promise<SearchResult[]> {
+    return call("Mira.SearchConversations", query);
   },
   /** Send adds a user message and streams one agent run through a MyGo channel. */
   send(conversationID: string, content: string, options: SendOptions, events: Channel<ChatEvent>): Promise<void> {

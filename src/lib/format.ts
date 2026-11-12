@@ -1,4 +1,4 @@
-import type { Conversation } from "../mygo";
+import type { Conversation, UsageView } from "../mygo";
 
 const day = 24 * 60 * 60 * 1000;
 
@@ -45,4 +45,28 @@ export function formatTime(value: string) {
 export function shortArguments(value: string) {
   const compact = value.replace(/\s+/g, " ").trim();
   return compact.length > 72 ? `${compact.slice(0, 72)}…` : compact;
+}
+
+export function formatTokens(value: number) {
+  if (value < 1000) return String(value);
+  if (value < 1_000_000) {
+    return `${(value / 1000).toFixed(value < 10_000 ? 1 : 0).replace(/\.0$/, "")}k`;
+  }
+  return `${(value / 1_000_000).toFixed(1).replace(/\.0$/, "")}M`;
+}
+
+export function formatCount(value: number) {
+  return new Intl.NumberFormat("zh-CN").format(value);
+}
+
+export function usageDetails(usage: UsageView) {
+  const parts = [
+    `输入 ${formatCount(usage.promptTokens)}`,
+    `输出 ${formatCount(usage.completionTokens)}`,
+  ];
+  if (usage.cacheReadTokens) parts.push(`缓存命中 ${formatCount(usage.cacheReadTokens)}`);
+  if (usage.cacheWriteTokens) parts.push(`缓存写入 ${formatCount(usage.cacheWriteTokens)}`);
+  if (usage.reasoningTokens) parts.push(`推理 ${formatCount(usage.reasoningTokens)}`);
+  parts.push(`合计 ${formatCount(usage.totalTokens)} tokens`);
+  return parts.join(" · ");
 }

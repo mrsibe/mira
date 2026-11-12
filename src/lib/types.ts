@@ -1,4 +1,5 @@
 import type { Spec } from "@json-render/core";
+import type { UsageView } from "../mygo";
 
 export type ToolRun = {
   id: string;
@@ -31,6 +32,7 @@ export type RunView = {
   nextPartId: number;
   startedAt: number;
   thinkingEndedAt?: number;
+  usage?: UsageView;
   error?: string;
 };
 

@@ -17,10 +17,14 @@ import (
 	"github.com/mrsibe/mira/internal/store"
 )
 
-type factoryFunc func(config.Settings, string) (*agent.Agent, error)
+type factoryFunc func(config.Settings, string, []ai.Message) (*agent.Agent, error)
 
-func (f factoryFunc) NewAgent(settings config.Settings, conversationID string) (*agent.Agent, error) {
-	return f(settings, conversationID)
+func (f factoryFunc) NewAgent(
+	settings config.Settings,
+	conversationID string,
+	messages []ai.Message,
+) (*agent.Agent, error) {
+	return f(settings, conversationID, messages)
 }
 
 type recordingSink struct {
@@ -49,7 +53,7 @@ func TestRunStreamsEventsAndPersistsHistory(t *testing.T) {
 		}},
 		{Type: ai.EventDone, StopReason: ai.StopReasonStop},
 	}})
-	svc, conversationID := newTestService(t, factoryFunc(func(config.Settings, string) (*agent.Agent, error) {
+	svc, conversationID := newTestService(t, factoryFunc(func(config.Settings, string, []ai.Message) (*agent.Agent, error) {
 		return agent.New(agent.Config{Model: model, SystemPrompt: "test"})
 	}))
 
@@ -92,6 +96,12 @@ func TestRunStreamsEventsAndPersistsHistory(t *testing.T) {
 		detail.Messages[1].Role != "assistant" {
 		t.Fatalf("detail messages = %+v", detail.Messages)
 	}
+	if detail.Messages[1].Usage == nil || detail.Messages[1].Usage.TotalTokens != 12 {
+		t.Fatalf("message usage = %+v", detail.Messages[1].Usage)
+	}
+	if detail.Usage.TotalTokens != 12 {
+		t.Fatalf("conversation usage = %+v", detail.Usage)
+	}
 }
 
 func TestRunPassesReasoningEffort(t *testing.T) {
@@ -111,7 +121,7 @@ func TestRunPassesReasoningEffort(t *testing.T) {
 				{Type: ai.EventTextDelta, TextDelta: "ok"},
 				{Type: ai.EventDone, StopReason: ai.StopReasonStop},
 			}})
-			svc, conversationID := newTestService(t, factoryFunc(func(config.Settings, string) (*agent.Agent, error) {
+			svc, conversationID := newTestService(t, factoryFunc(func(config.Settings, string, []ai.Message) (*agent.Agent, error) {
 				return agent.New(agent.Config{Model: model})
 			}))
 
@@ -140,9 +150,10 @@ func TestRunAppendsMemoryContextWithoutRewritingPrefix(t *testing.T) {
 		textTurn("第二次回答"),
 	)
 	svc, conversationID := newTestService(t, factoryFunc(
-		func(_ config.Settings, id string) (*agent.Agent, error) {
+		func(_ config.Settings, id string, messages []ai.Message) (*agent.Agent, error) {
 			return agent.New(agent.Config{
 				Model:          model,
+				Messages:       messages,
 				RequestOptions: ai.RequestOptions{SessionID: id},
 			})
 		},
@@ -242,6 +253,190 @@ func TestRunAppendsMemoryContextWithoutRewritingPrefix(t *testing.T) {
 	}
 }
 
+func TestEditMessageReplacesTurnAndRegenerates(t *testing.T) {
+	model := faux.New(textTurn("旧回答"), textTurn("新回答"))
+	svc, conversationID := newTestService(t, historyAgentFactory(model))
+
+	if err := svc.run(
+		context.Background(),
+		conversationID,
+		"旧问题",
+		SendOptions{},
+		&recordingSink{},
+	); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.editMessage(
+		context.Background(),
+		conversationID,
+		0,
+		"新问题",
+		SendOptions{},
+		&recordingSink{},
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	detail, err := svc.GetConversation(conversationID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(detail.Messages) != 2 {
+		t.Fatalf("messages = %+v", detail.Messages)
+	}
+	if detail.Messages[0].Blocks[0].Text != "新问题" ||
+		detail.Messages[1].Blocks[0].Text != "新回答" {
+		t.Fatalf("edited conversation = %+v", detail.Messages)
+	}
+	if detail.Conversation.Title != "新问题" {
+		t.Fatalf("title = %q", detail.Conversation.Title)
+	}
+	if len(model.Requests) != 2 {
+		t.Fatalf("model requests = %d", len(model.Requests))
+	}
+	requestText := messageTexts(model.Requests[1].Messages)
+	if !strings.Contains(requestText, "新问题") || strings.Contains(requestText, "旧问题") {
+		t.Fatalf("edited request = %q", requestText)
+	}
+}
+
+func TestEditKeepsRuntimeMemoryBeforeTheUserMessage(t *testing.T) {
+	model := faux.New(textTurn("第一版回答"), textTurn("第二版回答"))
+	svc, conversationID := newTestService(t, historyAgentFactory(model))
+	memories, err := memory.Open(t.TempDir(), svc.store, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc.memory = memories
+	if _, err := memories.Save(memory.SaveInput{
+		Summary:  "用户偏好旧版本。",
+		Revision: 0,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := svc.run(
+		context.Background(),
+		conversationID,
+		"原问题",
+		SendOptions{},
+		&recordingSink{},
+	); err != nil {
+		t.Fatal(err)
+	}
+	view := memories.Get()
+	if _, err := memories.Save(memory.SaveInput{
+		Summary:  "用户偏好新版本。",
+		Revision: view.Revision,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.editMessage(
+		context.Background(),
+		conversationID,
+		0,
+		"修改后的问题",
+		SendOptions{},
+		&recordingSink{},
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	_, records, err := svc.store.GetRecords(conversationID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != 3 {
+		t.Fatalf("records = %+v", records)
+	}
+	if records[0].ContextKind != prompt.RuntimeMemoryKind ||
+		records[1].Message.Role != ai.RoleUser ||
+		records[2].Message.Role != ai.RoleAssistant {
+		t.Fatalf("runtime memory moved after the user message: %+v", records)
+	}
+}
+
+func TestRegenerateDiscardsAnswerAndReruns(t *testing.T) {
+	model := faux.New(textTurn("旧回答"), textTurn("重写回答"))
+	svc, conversationID := newTestService(t, historyAgentFactory(model))
+
+	if err := svc.run(
+		context.Background(),
+		conversationID,
+		"原问题",
+		SendOptions{},
+		&recordingSink{},
+	); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.regenerate(
+		context.Background(),
+		conversationID,
+		1,
+		SendOptions{},
+		&recordingSink{},
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	detail, err := svc.GetConversation(conversationID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(detail.Messages) != 2 ||
+		detail.Messages[1].Blocks[0].Text != "重写回答" {
+		t.Fatalf("regenerated messages = %+v", detail.Messages)
+	}
+	if len(model.Requests) != 2 {
+		t.Fatalf("model requests = %d", len(model.Requests))
+	}
+	requestText := messageTexts(model.Requests[1].Messages)
+	if !strings.Contains(requestText, "原问题") || strings.Contains(requestText, "旧回答") {
+		t.Fatalf("regenerated request = %q", requestText)
+	}
+}
+
+func TestForkConversationCopiesThroughAssistantTurn(t *testing.T) {
+	model := faux.New(textTurn("第一轮回答"), textTurn("第二轮回答"))
+	svc, conversationID := newTestService(t, historyAgentFactory(model))
+
+	for _, prompt := range []string{"第一轮问题", "第二轮问题"} {
+		if err := svc.run(
+			context.Background(),
+			conversationID,
+			prompt,
+			SendOptions{},
+			&recordingSink{},
+		); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	fork, err := svc.ForkConversation(conversationID, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fork.Conversation.ID == conversationID {
+		t.Fatal("fork reused the source id")
+	}
+	if len(fork.Messages) != 2 ||
+		fork.Messages[0].Blocks[0].Text != "第一轮问题" ||
+		fork.Messages[1].Blocks[0].Text != "第一轮回答" {
+		t.Fatalf("fork messages = %+v", fork.Messages)
+	}
+	if !strings.HasSuffix(fork.Conversation.Title, "（分支）") {
+		t.Fatalf("fork title = %q", fork.Conversation.Title)
+	}
+
+	source, err := svc.GetConversation(conversationID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(source.Messages) != 4 {
+		t.Fatalf("source messages changed: %+v", source.Messages)
+	}
+}
+
 func textTurn(text string) faux.Turn {
 	return faux.Turn{Events: []ai.Event{
 		{Type: ai.EventStart},
@@ -250,8 +445,28 @@ func textTurn(text string) faux.Turn {
 	}}
 }
 
+func historyAgentFactory(model ai.Model) agentFactory {
+	return factoryFunc(func(_ config.Settings, id string, messages []ai.Message) (*agent.Agent, error) {
+		return agent.New(agent.Config{
+			Model:          model,
+			Messages:       messages,
+			SystemPrompt:   "test",
+			RequestOptions: ai.RequestOptions{SessionID: id},
+		})
+	})
+}
+
+func messageTexts(messages []ai.Message) string {
+	var builder strings.Builder
+	for _, message := range messages {
+		builder.WriteString(message.Text())
+		builder.WriteByte('\n')
+	}
+	return builder.String()
+}
+
 func TestRunRejectsInvalidReasoningEffort(t *testing.T) {
-	svc, conversationID := newTestService(t, factoryFunc(func(config.Settings, string) (*agent.Agent, error) {
+	svc, conversationID := newTestService(t, factoryFunc(func(config.Settings, string, []ai.Message) (*agent.Agent, error) {
 		t.Fatal("factory must not be called")
 		return nil, nil
 	}))
@@ -284,7 +499,7 @@ func TestRunRejectsUnconfiguredProvider(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	svc := New(cfg, conversations, factoryFunc(func(config.Settings, string) (*agent.Agent, error) {
+	svc := New(cfg, conversations, factoryFunc(func(config.Settings, string, []ai.Message) (*agent.Agent, error) {
 		return nil, errors.New("factory must not be called")
 	}), nil)
 
@@ -317,10 +532,10 @@ func TestRunExecutesToolAndPersistsToolHistory(t *testing.T) {
 			{Type: ai.EventDone, StopReason: ai.StopReasonStop},
 		}},
 	)
-	tool := agent.NewTextTool(ai.ToolSpec{Name: "test_tool"}, func(context.Context, ai.ToolCall) (string, error) {
+	tool := agent.NewTextTool(agent.ToolSpec{Name: "test_tool"}, func(context.Context, ai.ToolCall) (string, error) {
 		return "tool output", nil
 	})
-	svc, conversationID := newTestService(t, factoryFunc(func(config.Settings, string) (*agent.Agent, error) {
+	svc, conversationID := newTestService(t, factoryFunc(func(config.Settings, string, []ai.Message) (*agent.Agent, error) {
 		return agent.New(agent.Config{
 			Model: model,
 			Tools: []agent.Tool{tool},
@@ -366,7 +581,7 @@ func TestRunExecutesToolAndPersistsToolHistory(t *testing.T) {
 }
 
 func TestRunRejectsConcurrentRun(t *testing.T) {
-	svc, conversationID := newTestService(t, factoryFunc(func(config.Settings, string) (*agent.Agent, error) {
+	svc, conversationID := newTestService(t, factoryFunc(func(config.Settings, string, []ai.Message) (*agent.Agent, error) {
 		return nil, errors.New("factory must not be called")
 	}))
 
@@ -390,10 +605,10 @@ func TestRunReportsMaxStepsAsResumableError(t *testing.T) {
 		}},
 		{Type: ai.EventDone, StopReason: ai.StopReasonToolCalls},
 	}})
-	tool := agent.NewTextTool(ai.ToolSpec{Name: "test_tool"}, func(context.Context, ai.ToolCall) (string, error) {
+	tool := agent.NewTextTool(agent.ToolSpec{Name: "test_tool"}, func(context.Context, ai.ToolCall) (string, error) {
 		return "tool output", nil
 	})
-	svc, conversationID := newTestService(t, factoryFunc(func(config.Settings, string) (*agent.Agent, error) {
+	svc, conversationID := newTestService(t, factoryFunc(func(config.Settings, string, []ai.Message) (*agent.Agent, error) {
 		return agent.New(agent.Config{
 			Model:    model,
 			Tools:    []agent.Tool{tool},
@@ -415,7 +630,7 @@ func TestRunReportsMaxStepsAsResumableError(t *testing.T) {
 }
 
 func TestCancellationPersistsPartialAnswer(t *testing.T) {
-	svc, conversationID := newTestService(t, factoryFunc(func(config.Settings, string) (*agent.Agent, error) {
+	svc, conversationID := newTestService(t, factoryFunc(func(config.Settings, string, []ai.Message) (*agent.Agent, error) {
 		return agent.New(agent.Config{Model: cancelModel{}, SystemPrompt: "test"})
 	}))
 

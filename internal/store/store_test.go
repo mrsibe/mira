@@ -142,6 +142,48 @@ func TestThinkingDurationRoundTrip(t *testing.T) {
 	}
 }
 
+func TestUsageAttachesToFinalAssistantMessage(t *testing.T) {
+	dir := t.TempDir()
+	conversations, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	created, err := conversations.Create()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := conversations.Append(created.ID, ai.TextMessage(ai.RoleUser, "问题")); err != nil {
+		t.Fatal(err)
+	}
+	if err := conversations.Append(created.ID, ai.TextMessage(ai.RoleAssistant, "回答")); err != nil {
+		t.Fatal(err)
+	}
+	if err := conversations.AppendUsage(created.ID, ai.Usage{
+		PromptTokens:     120,
+		CompletionTokens: 30,
+		CacheReadTokens:  80,
+		TotalTokens:      150,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, store := range []*Store{conversations, mustOpenStore(t, dir)} {
+		_, records, err := store.GetRecords(created.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(records) != 2 || records[1].Usage == nil {
+			t.Fatalf("records = %+v", records)
+		}
+		if records[0].Usage != nil {
+			t.Fatalf("usage attached to user message: %+v", records[0].Usage)
+		}
+		if got := records[1].Usage; got.TotalTokens != 150 || got.CacheReadTokens != 80 {
+			t.Fatalf("usage = %+v", got)
+		}
+	}
+}
+
 func TestContextRecordsAreHiddenFromConversationMetadata(t *testing.T) {
 	dir := t.TempDir()
 	conversations, err := Open(dir)
@@ -187,6 +229,68 @@ func TestContextRecordsAreHiddenFromConversationMetadata(t *testing.T) {
 	}
 	if len(messages) != 2 || messages[0].Text() != context.Text() {
 		t.Fatalf("model history = %+v", messages)
+	}
+}
+
+func TestSearchFindsVisibleMessageText(t *testing.T) {
+	conversations, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	created, err := conversations.Create()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := conversations.Append(created.ID, ai.TextMessage(ai.RoleUser, "Alpha question")); err != nil {
+		t.Fatal(err)
+	}
+	if err := conversations.Append(
+		created.ID,
+		ai.TextMessage(ai.RoleAssistant, "The needle is in a long answer about spacing."),
+	); err != nil {
+		t.Fatal(err)
+	}
+	if err := conversations.Append(created.ID, ai.TextMessage(ai.RoleUser, "Another needle")); err != nil {
+		t.Fatal(err)
+	}
+	if err := conversations.AppendContext(
+		created.ID,
+		"memory",
+		"hash",
+		ai.TextMessage(ai.RoleUser, "hidden needle"),
+	); err != nil {
+		t.Fatal(err)
+	}
+	if err := conversations.Append(
+		created.ID,
+		ai.ToolTextMessage("call", "search", "needle tool result", false),
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	results := conversations.Search("NEEDLE")
+	if len(results) != 1 {
+		t.Fatalf("results = %+v", results)
+	}
+	result := results[0]
+	if result.Conversation.ID != created.ID || result.MessageIndex != 1 ||
+		result.Role != string(ai.RoleAssistant) || result.MatchCount != 2 {
+		t.Fatalf("result = %+v", result)
+	}
+	if !strings.Contains(result.Snippet, "needle") {
+		t.Fatalf("snippet = %q", result.Snippet)
+	}
+
+	titleResults := conversations.Search("alpha")
+	if len(titleResults) != 1 || titleResults[0].MessageIndex != 0 {
+		t.Fatalf("title results = %+v", titleResults)
+	}
+
+	if hidden := conversations.Search("hidden needle"); len(hidden) != 0 {
+		t.Fatalf("context or tool text matched: %+v", hidden)
+	}
+	if empty := conversations.Search("   "); len(empty) != 0 {
+		t.Fatalf("empty query matched: %+v", empty)
 	}
 }
 

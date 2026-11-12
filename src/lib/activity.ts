@@ -1,5 +1,5 @@
 import { parseAssistantAnswer } from "../genui/stream";
-import type { ToolResultView, UIMessage } from "../mygo";
+import type { ToolResultView, UIMessage, UsageView } from "../mygo";
 import { shortArguments } from "./format";
 import { activePlanStep, PLAN_TOOL_NAME, parsePlan } from "./plan";
 import type { AssistantSegment, PlanStep, PlanView, RunView, ToolRun, UISpecView } from "./types";
@@ -24,6 +24,7 @@ export type AssistantTurnView = {
   spec: UISpecView | null;
   segments: AssistantSegment[];
   messageIndex?: number;
+  usage?: UsageView;
   error?: string;
   streaming: boolean;
   thinkingDurationMs?: number;
@@ -107,6 +108,7 @@ export function buildCompletedTurn(
     spec: parsed.spec,
     segments: parsed.segments,
     messageIndex: answerMessage?.index,
+    usage: answerMessage?.usage,
     streaming: false,
     thinkingDurationMs: answerMessage?.thinkingDurationMs,
   };
@@ -238,6 +240,7 @@ export function buildLiveTurn(run: RunView): AssistantTurnView {
     answer: parsed.text,
     spec: parsed.spec,
     segments: parsed.segments,
+    usage: run.usage,
     error: run.error,
     streaming: run.status === "running",
     thinkingDurationMs:
@@ -245,6 +248,31 @@ export function buildLiveTurn(run: RunView): AssistantTurnView {
         ? undefined
         : Math.max(0, run.thinkingEndedAt - run.startedAt),
   };
+}
+
+export function sumUsage(messages: UIMessage[], extra?: UsageView): UsageView {
+  const total: UsageView = {
+    promptTokens: 0,
+    completionTokens: 0,
+    cacheReadTokens: 0,
+    cacheWriteTokens: 0,
+    reasoningTokens: 0,
+    totalTokens: 0,
+  };
+  for (const message of messages) {
+    if (message.usage) addUsage(total, message.usage);
+  }
+  if (extra) addUsage(total, extra);
+  return total;
+}
+
+function addUsage(total: UsageView, usage: UsageView) {
+  total.promptTokens += usage.promptTokens;
+  total.completionTokens += usage.completionTokens;
+  total.cacheReadTokens = (total.cacheReadTokens ?? 0) + (usage.cacheReadTokens ?? 0);
+  total.cacheWriteTokens = (total.cacheWriteTokens ?? 0) + (usage.cacheWriteTokens ?? 0);
+  total.reasoningTokens = (total.reasoningTokens ?? 0) + (usage.reasoningTokens ?? 0);
+  total.totalTokens += usage.totalTokens;
 }
 
 export function liveActivityTitle(activity: Activity, streaming: boolean) {

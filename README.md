@@ -43,7 +43,7 @@ Mira 是一个本地优先的 ChatGPT 桌面客户端。熟悉的对话界面之
 | --- | --- | --- |
 | Windows 10/11 | `mira-setup-{version}-amd64.exe` | 安装程序，支持自动更新 |
 | macOS | `mira-{version}-darwin-arm64.tar.gz` / `mira-{version}-darwin-amd64.tar.gz` | 解压后将 `Mira.app` 移到 `~/Applications` |
-| Linux | `mira_{version}_amd64.deb` / `mira-{version}-linux-amd64.tar.gz` | Debian / Ubuntu 或通用归档 |
+| Linux | `mira_{version}_amd64.deb` / `mira-{version}-1.x86_64.rpm` / `mira-{version}-linux-amd64.tar.gz` | Debian / Ubuntu、Fedora / RHEL 或通用归档 |
 
 <details>
 <summary>macOS 首次打开时提示“已损坏”或无法验证？</summary>
@@ -71,7 +71,8 @@ xattr -dr com.apple.quarantine ~/Applications/Mira.app
 ### 对话体验
 
 - 熟悉的两栏布局、Markdown 回答、代码高亮和流式输出。
-- 停止生成、复制回答，以及浅色 / 深色 / 跟随系统主题。
+- 停止生成、复制回答、编辑提问、重新生成、分叉对话，以及查看 token 用量。
+- 支持浅色 / 深色 / 跟随系统主题。
 - 输入框内直接切换思维强度，最后的选择会保存在本机。
 - 智能界面默认开启，可按回答生成表格、图表、表单等交互组件；可在
   “设置 → 个性化”中关闭。

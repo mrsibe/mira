@@ -64,8 +64,12 @@ func NewEngine() *Engine {
 	}
 }
 
-// NewAgent creates an immutable agent for one conversation run.
-func (e *Engine) NewAgent(settings config.Settings, conversationID string) (*agent.Agent, error) {
+// NewAgent creates an agent initialized with one conversation transcript.
+func (e *Engine) NewAgent(
+	settings config.Settings,
+	conversationID string,
+	messages []ai.Message,
+) (*agent.Agent, error) {
 	model, err := newModel(settings)
 	if err != nil {
 		return nil, err
@@ -73,6 +77,7 @@ func (e *Engine) NewAgent(settings config.Settings, conversationID string) (*age
 	tools, systemPrompt := e.toolsFor(settings, conversationID)
 	return agent.New(agent.Config{
 		Model:          model,
+		Messages:       messages,
 		Tools:          tools,
 		SystemPrompt:   systemPrompt,
 		MaxSteps:       MaxSteps,
@@ -193,13 +198,14 @@ type ChatEvent struct {
 
 // UIMessage is the frontend-safe representation of an agent message.
 type UIMessage struct {
-	Index              int       `json:"index"`
-	Role               string    `json:"role"`
-	Blocks             []UIBlock `json:"blocks"`
-	ToolCallID         string    `json:"toolCallId,omitempty"`
-	ToolName           string    `json:"toolName,omitempty"`
-	IsError            bool      `json:"isError,omitempty"`
-	ThinkingDurationMS int64     `json:"thinkingDurationMs,omitempty"`
+	Index              int        `json:"index"`
+	Role               string     `json:"role"`
+	Blocks             []UIBlock  `json:"blocks"`
+	ToolCallID         string     `json:"toolCallId,omitempty"`
+	ToolName           string     `json:"toolName,omitempty"`
+	IsError            bool       `json:"isError,omitempty"`
+	ThinkingDurationMS int64      `json:"thinkingDurationMs,omitempty"`
+	Usage              *UsageView `json:"usage,omitempty"`
 }
 
 // UIBlock is a text, thinking, or tool-call block.
@@ -228,6 +234,9 @@ type ToolResultView struct {
 type UsageView struct {
 	PromptTokens     int64 `json:"promptTokens"`
 	CompletionTokens int64 `json:"completionTokens"`
+	CacheReadTokens  int64 `json:"cacheReadTokens,omitempty"`
+	CacheWriteTokens int64 `json:"cacheWriteTokens,omitempty"`
+	ReasoningTokens  int64 `json:"reasoningTokens,omitempty"`
 	TotalTokens      int64 `json:"totalTokens"`
 }
 
@@ -281,12 +290,15 @@ func UsageViewFrom(usage ai.Usage) *UsageView {
 	return &UsageView{
 		PromptTokens:     usage.PromptTokens,
 		CompletionTokens: usage.CompletionTokens,
+		CacheReadTokens:  usage.CacheReadTokens,
+		CacheWriteTokens: usage.CacheWriteTokens,
+		ReasoningTokens:  usage.ReasoningTokens,
 		TotalTokens:      usage.TotalTokens,
 	}
 }
 
 func currentTimeTool() agent.Tool {
-	return agent.NewTextTool(ai.ToolSpec{
+	return agent.NewTextTool(agent.ToolSpec{
 		Name:        "get_current_time",
 		Description: "返回当前日期和时间。可以传入 IANA 时区，例如 Asia/Shanghai。",
 		Parameters: map[string]any{
@@ -327,7 +339,7 @@ type planStep struct {
 }
 
 func updatePlanTool() agent.Tool {
-	return agent.NewTool(ai.ToolSpec{
+	return agent.NewTool(agent.ToolSpec{
 		Name: updatePlanToolName,
 		Description: "为需要多步工具调用、比较研究或外部事实核查的任务创建或更新执行计划。" +
 			"简单问题不要调用。步骤标题使用简短的动词短语；同一时间最多一个 in_progress。",
@@ -448,7 +460,7 @@ func planStatusLabel(status string) string {
 }
 
 func memorySearchTool(memory Memory, conversationID string) agent.Tool {
-	return agent.NewTool(ai.ToolSpec{
+	return agent.NewTool(agent.ToolSpec{
 		Name: "search_memory",
 		Description: "搜索过去的对话记录，查找用户以前提过的偏好、项目、决定或事实。" +
 			"仅在需要历史上下文时调用；结果可能过时，不要编造未返回的内容。",
@@ -510,7 +522,7 @@ func memorySearchTool(memory Memory, conversationID string) agent.Tool {
 }
 
 func webSearchTool(provider search.Provider) agent.Tool {
-	return agent.NewTool(ai.ToolSpec{
+	return agent.NewTool(agent.ToolSpec{
 		Name: "web_search",
 		Description: "搜索互联网获取最新或外部信息。返回结果的标题、URL 和摘要。" +
 			"引用结果时使用 Markdown 链接，不要编造搜索结果。",

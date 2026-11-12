@@ -155,8 +155,11 @@
 
 @media (hover: none) {
   .conversation-actions,
-  .project-actions {
+  .project-actions,
+  .user-message-actions {
     display: flex;
+    opacity: 1;
+    pointer-events: auto;
   }
 }
 

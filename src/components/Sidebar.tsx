@@ -7,7 +7,6 @@ import {
   Search,
   Settings,
   SquarePen,
-  X,
 } from "lucide-react";
 import {
   type DragEvent as ReactDragEvent,
@@ -43,8 +42,7 @@ type SidebarProps = {
   conversations: Conversation[];
   projects: Project[];
   activeId: string | null;
-  search: string;
-  onSearch: (value: string) => void;
+  onOpenSearch: () => void;
   onSelect: (id: string) => void;
   onNew: () => void;
   onNewInProject: (projectID: string) => void;
@@ -66,8 +64,7 @@ export function Sidebar({
   conversations,
   projects,
   activeId,
-  search,
-  onSearch,
+  onOpenSearch,
   onSelect,
   onNew,
   onNewInProject,
@@ -81,7 +78,7 @@ export function Sidebar({
 }: SidebarProps) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
-  const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
+  const [expandedProjects, setExpandedProjects] = useState<Set<string>>(() => new Set());
   const [menu, setMenu] = useState<MenuState>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const [viewportWidth, setViewportWidth] = useState(() => window.innerWidth);
@@ -165,11 +162,7 @@ export function Sidebar({
     setMenu(null);
   }, []);
 
-  const model = buildSidebarModel(projects, conversations, search);
-  const visibleProjects = model.projects.filter(
-    (group) => !model.searching || group.items.length > 0,
-  );
-  const unfiledCount = model.unfiled.reduce((total, [, items]) => total + items.length, 0);
+  const model = buildSidebarModel(projects, conversations);
   const canUnfile = dragging !== null && dragging.sourceProjectID !== "";
   const showUnfiledRegion = model.unfiled.length > 0 || canUnfile;
 
@@ -186,7 +179,7 @@ export function Sidebar({
   }
 
   function toggleProject(id: string) {
-    setCollapsed((current) => {
+    setExpandedProjects((current) => {
       const next = new Set(current);
       if (next.has(id)) next.delete(id);
       else next.add(id);
@@ -195,10 +188,10 @@ export function Sidebar({
   }
 
   function expandProject(id: string) {
-    setCollapsed((current) => {
-      if (!current.has(id)) return current;
+    setExpandedProjects((current) => {
+      if (current.has(id)) return current;
       const next = new Set(current);
-      next.delete(id);
+      next.add(id);
       return next;
     });
   }
@@ -215,7 +208,7 @@ export function Sidebar({
   }
 
   function scheduleExpand(projectID: string) {
-    if (!collapsed.has(projectID) || expandTimerRef.current !== undefined) return;
+    if (expandedProjects.has(projectID) || expandTimerRef.current !== undefined) return;
     expandTimerRef.current = window.setTimeout(() => {
       expandTimerRef.current = undefined;
       expandProject(projectID);
@@ -277,10 +270,6 @@ export function Sidebar({
     event: ReactDragEvent<HTMLButtonElement>,
     conversation: Conversation,
   ) {
-    if (model.searching) {
-      event.preventDefault();
-      return;
-    }
     const drag: ConversationDrag = {
       conversationID: conversation.id,
       sourceProjectID: conversationProjectID(conversation),
@@ -428,7 +417,7 @@ export function Sidebar({
           <button
             type="button"
             className="conversation-select"
-            draggable={!model.searching}
+            draggable
             aria-current={active ? "page" : undefined}
             onClick={() => onSelect(item.id)}
             onDoubleClick={() => startRename(item)}
@@ -459,25 +448,15 @@ export function Sidebar({
 
   return (
     <aside className={`sidebar ${resizing ? "resizing" : ""}`}>
-      <button className="new-chat" type="button" onClick={onNew}>
-        <SquarePen size={17} />
-        <span>新对话</span>
-      </button>
-
-      <label className="search-box">
-        <Search size={15} aria-hidden="true" />
-        <input
-          value={search}
-          onChange={(event) => onSearch(event.target.value)}
-          placeholder="搜索对话"
-          aria-label="搜索对话"
-        />
-        {search && (
-          <button type="button" className="search-clear" onClick={() => onSearch("")} title="清除">
-            <X size={13} />
-          </button>
-        )}
-      </label>
+      <div className="sidebar-actions">
+        <button className="new-chat" type="button" onClick={onNew}>
+          <SquarePen size={17} />
+          <span>新对话</span>
+        </button>
+        <IconButton label="搜索对话" className="sidebar-search-button" onClick={onOpenSearch}>
+          <Search size={17} />
+        </IconButton>
+      </div>
 
       <nav ref={listRef} className="conversation-list" aria-label="对话与项目列表">
         <div className="sidebar-section-head">
@@ -491,8 +470,8 @@ export function Sidebar({
           </IconButton>
         </div>
 
-        {visibleProjects.map(({ project, items }) => {
-          const expanded = model.searching || !collapsed.has(project.id);
+        {model.projects.map(({ project, items }) => {
+          const expanded = expandedProjects.has(project.id);
           const hasActive = items.some((item) => item.id === activeId);
           const menuOpen = menu?.kind === "project" && menu.project.id === project.id;
           return (
@@ -558,7 +537,7 @@ export function Sidebar({
           );
         })}
 
-        {!model.searching && visibleProjects.length === 0 && conversations.length > 0 && (
+        {model.projects.length === 0 && conversations.length > 0 && (
           <p className="sidebar-empty compact">还没有项目</p>
         )}
 
@@ -587,10 +566,7 @@ export function Sidebar({
           </div>
         )}
 
-        {model.searching && visibleProjects.length === 0 && unfiledCount === 0 && (
-          <p className="sidebar-empty">没有匹配的对话</p>
-        )}
-        {!model.searching && conversations.length === 0 && projects.length === 0 && (
+        {conversations.length === 0 && projects.length === 0 && (
           <p className="sidebar-empty">还没有对话</p>
         )}
       </nav>

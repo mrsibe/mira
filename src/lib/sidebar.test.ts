@@ -21,16 +21,12 @@ function conversation(id: string, title: string, projectId?: string): Conversati
 
 describe("buildSidebarModel", () => {
   it("sorts projects by creation time and keeps unfiled chats separate", () => {
-    const model = buildSidebarModel(
-      projects,
-      [
-        conversation("a", "Inside earlier", "earlier"),
-        conversation("b", "Inside later", "later"),
-        conversation("c", "No project"),
-        conversation("d", "Unknown project", "missing"),
-      ],
-      "",
-    );
+    const model = buildSidebarModel(projects, [
+      conversation("a", "Inside earlier", "earlier"),
+      conversation("b", "Inside later", "later"),
+      conversation("c", "No project"),
+      conversation("d", "Unknown project", "missing"),
+    ]);
 
     expect(model.projects.map((group) => group.project.id)).toEqual(["earlier", "later"]);
     expect(model.projects[0]?.items.map((item) => item.id)).toEqual(["a"]);
@@ -39,17 +35,12 @@ describe("buildSidebarModel", () => {
     );
   });
 
-  it("filters by title and preview while retaining project groups", () => {
+  it("keeps every conversation in its project group", () => {
     const inProject = conversation("a", "Design notes", "earlier");
     inProject.preview = "Spacing review";
-    const model = buildSidebarModel(
-      projects,
-      [inProject, conversation("b", "Other", "later")],
-      "spacing",
-    );
+    const model = buildSidebarModel(projects, [inProject, conversation("b", "Other", "later")]);
 
-    expect(model.searching).toBe(true);
     expect(model.projects[0]?.items.map((item) => item.id)).toEqual(["a"]);
-    expect(model.projects[1]?.items).toEqual([]);
+    expect(model.projects[1]?.items.map((item) => item.id)).toEqual(["b"]);
   });
 });

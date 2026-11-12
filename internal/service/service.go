@@ -41,7 +41,7 @@ type Service struct {
 }
 
 type agentFactory interface {
-	NewAgent(config.Settings, string) (*agent.Agent, error)
+	NewAgent(config.Settings, string, []ai.Message) (*agent.Agent, error)
 }
 
 // New creates the bound application service.
@@ -68,6 +68,7 @@ type Bootstrap struct {
 type ConversationDetail struct {
 	Conversation store.Conversation `json:"conversation"`
 	Messages     []chat.UIMessage   `json:"messages"`
+	Usage        chat.UsageView     `json:"usage"`
 }
 
 // SendOptions contains per-message request controls.
@@ -107,6 +108,11 @@ func (s *Service) Bootstrap() Bootstrap {
 // ListConversations returns the sidebar entries.
 func (s *Service) ListConversations() []store.Conversation {
 	return s.store.List()
+}
+
+// SearchConversations searches titles, previews and visible message text.
+func (s *Service) SearchConversations(query string) []store.SearchResult {
+	return s.store.Search(query)
 }
 
 // ListProjects returns project categories in creation order.
@@ -178,14 +184,20 @@ func (s *Service) GetConversation(id string) (ConversationDetail, error) {
 	}
 	detail := ConversationDetail{Conversation: conversation}
 	detail.Messages = make([]chat.UIMessage, 0, len(records))
+	var total ai.Usage
 	for _, record := range records {
 		if record.ContextKind != "" {
 			continue
 		}
 		message := chat.FromMessage(record.Message, len(detail.Messages))
 		message.ThinkingDurationMS = record.ThinkingDurationMS
+		if record.Usage != nil {
+			message.Usage = chat.UsageViewFrom(*record.Usage)
+			total.Add(*record.Usage)
+		}
 		detail.Messages = append(detail.Messages, message)
 	}
+	detail.Usage = *chat.UsageViewFrom(total)
 	return detail, nil
 }
 
@@ -293,6 +305,113 @@ func (s *Service) Send(
 	return s.run(ctx, conversationID, content, options, events)
 }
 
+// EditMessage replaces one user message, discards everything after it and
+// streams a fresh assistant response.
+func (s *Service) EditMessage(
+	ctx context.Context,
+	conversationID string,
+	messageIndex int,
+	content string,
+	options SendOptions,
+	events *mygo.Channel[chat.ChatEvent],
+) error {
+	return s.editMessage(ctx, conversationID, messageIndex, content, options, events)
+}
+
+func (s *Service) editMessage(
+	ctx context.Context,
+	conversationID string,
+	messageIndex int,
+	content string,
+	options SendOptions,
+	sink EventSink,
+) error {
+	content = strings.TrimSpace(content)
+	if content == "" {
+		return errors.New("消息不能为空")
+	}
+	if len([]rune(content)) > maxInputRunes {
+		return fmt.Errorf("消息过长，最多 %d 个字符", maxInputRunes)
+	}
+	if err := validateSendOptions(options); err != nil {
+		return err
+	}
+	if !s.cfg.View().Configured {
+		return errNotConfigured
+	}
+
+	handle, runCtx, err := s.beginRun(ctx, conversationID)
+	if err != nil {
+		return err
+	}
+	defer s.endRun(handle)
+	if _, err := s.store.EditUserMessage(conversationID, messageIndex, content); err != nil {
+		return err
+	}
+	if s.memory != nil {
+		s.memory.MarkDirty()
+	}
+	return s.executeRun(runCtx, handle, conversationID, "", options, sink, true, true)
+}
+
+// Regenerate reruns the assistant turn containing messageIndex. It keeps the
+// preceding user message and discards that turn plus all later history.
+func (s *Service) Regenerate(
+	ctx context.Context,
+	conversationID string,
+	messageIndex int,
+	options SendOptions,
+	events *mygo.Channel[chat.ChatEvent],
+) error {
+	return s.regenerate(ctx, conversationID, messageIndex, options, events)
+}
+
+func (s *Service) regenerate(
+	ctx context.Context,
+	conversationID string,
+	messageIndex int,
+	options SendOptions,
+	sink EventSink,
+) error {
+	if err := validateSendOptions(options); err != nil {
+		return err
+	}
+	if !s.cfg.View().Configured {
+		return errNotConfigured
+	}
+
+	handle, runCtx, err := s.beginRun(ctx, conversationID)
+	if err != nil {
+		return err
+	}
+	defer s.endRun(handle)
+	if _, err := s.store.TruncateAssistantTurn(conversationID, messageIndex); err != nil {
+		return err
+	}
+	if s.memory != nil {
+		s.memory.MarkDirty()
+	}
+	return s.executeRun(runCtx, handle, conversationID, "", options, sink, true, false)
+}
+
+// ForkConversation copies a completed assistant turn into a new conversation.
+func (s *Service) ForkConversation(conversationID string, messageIndex int) (ConversationDetail, error) {
+	s.mu.Lock()
+	busy := s.active != nil
+	s.mu.Unlock()
+	if busy {
+		return ConversationDetail{}, errBusy
+	}
+	conversation, err := s.store.ForkAssistantTurn(conversationID, messageIndex)
+	if err != nil {
+		return ConversationDetail{}, err
+	}
+	if s.memory != nil {
+		s.memory.MarkDirty()
+	}
+	return s.GetConversation(conversation.ID)
+}
+
 func (s *Service) run(
 	ctx context.Context,
 	conversationID string,
@@ -307,16 +426,40 @@ func (s *Service) run(
 	if len([]rune(content)) > maxInputRunes {
 		return fmt.Errorf("消息过长，最多 %d 个字符", maxInputRunes)
 	}
-	reasoningEffort := strings.TrimSpace(options.ReasoningEffort)
-	switch reasoningEffort {
-	case "", "low", "medium", "high":
-	default:
-		return fmt.Errorf("不支持的思维强度: %q", options.ReasoningEffort)
+	if err := validateSendOptions(options); err != nil {
+		return err
 	}
 	if !s.cfg.View().Configured {
 		return errNotConfigured
 	}
 
+	handle, runCtx, err := s.beginRun(ctx, conversationID)
+	if err != nil {
+		return err
+	}
+	defer s.endRun(handle)
+	return s.executeRun(runCtx, handle, conversationID, content, options, sink, false, true)
+}
+
+func validateSendOptions(options SendOptions) error {
+	switch strings.TrimSpace(options.ReasoningEffort) {
+	case "", "low", "medium", "high":
+		return nil
+	default:
+		return fmt.Errorf("不支持的思维强度: %q", options.ReasoningEffort)
+	}
+}
+
+func (s *Service) executeRun(
+	runCtx context.Context,
+	handle *activeRun,
+	conversationID string,
+	content string,
+	options SendOptions,
+	sink EventSink,
+	continueRun bool,
+	newUserTurn bool,
+) error {
 	conversation, records, err := s.store.GetRecords(conversationID)
 	if err != nil {
 		return err
@@ -324,34 +467,42 @@ func (s *Service) run(
 	if conversation.ID == "" {
 		return errors.New("会话不存在")
 	}
-	handle, runCtx, err := s.beginRun(ctx, conversationID)
-	if err != nil {
-		return err
-	}
-	defer s.endRun(handle)
+	reasoningEffort := strings.TrimSpace(options.ReasoningEffort)
 	runStarted := time.Now()
 
 	settings := s.cfg.Settings()
-	records, err = s.appendRuntimeMemory(conversationID, settings, records)
-	if err != nil {
-		return err
+	visibleCount := visibleRecordCount(records)
+	if !continueRun {
+		// Edit and regenerate already end with the user message they are
+		// rerunning. Injecting memory here would place context after that
+		// message; the existing context record remains earlier in history.
+		records, err = s.appendRuntimeMemory(conversationID, settings, records)
+		if err != nil {
+			return err
+		}
 	}
 	history := make([]ai.Message, len(records))
 	for index, record := range records {
 		history[index] = record.Message
 	}
-	assistant, err := s.engine.NewAgent(settings, conversationID)
+	assistant, err := s.engine.NewAgent(settings, conversationID, repairToolHistory(history))
 	if err != nil {
 		return err
 	}
-	session := assistant.NewSessionWithHistory(repairToolHistory(history))
+	assistant.SetRequestOptions(ai.RequestOptions{
+		SessionID:       conversationID,
+		ReasoningEffort: reasoningEffort,
+	})
 
 	var (
-		nextIndex  = len(history)
+		nextIndex  = visibleCount
 		sinkErr    error
 		persistErr error
 		answerAt   time.Time
 	)
+	if !continueRun {
+		nextIndex++
+	}
 	emit := func(event chat.ChatEvent) bool {
 		if sinkErr != nil {
 			return false
@@ -377,81 +528,88 @@ func (s *Service) run(
 	if !emit(chat.ChatEvent{Type: chat.EventRunStart}) {
 		return sinkErr
 	}
-	if s.memory != nil {
+	if s.memory != nil && newUserTurn {
 		defer s.memory.ObserveUserTurn(settings)
 	}
 
-	result, runErr := session.Run(
-		runCtx,
-		content,
-		agent.WithRequestOptions(ai.RequestOptions{ReasoningEffort: reasoningEffort}),
-		agent.WithOnEvent(func(event agent.Event) {
-			if persistErr != nil || sinkErr != nil {
+	handleEvent := func(event agent.Event) {
+		if persistErr != nil || sinkErr != nil {
+			return
+		}
+		switch event.Type {
+		case agent.EventMessageDelta:
+			if event.Text != "" {
+				if answerAt.IsZero() {
+					answerAt = time.Now()
+				}
+				emit(chat.ChatEvent{Type: chat.EventMessageDelta, Text: event.Text})
+			}
+		case agent.EventThinkingStart:
+			answerAt = time.Time{}
+			emit(chat.ChatEvent{Type: chat.EventThinkingStart})
+		case agent.EventThinkingDelta:
+			if event.Thinking != "" {
+				answerAt = time.Time{}
+				emit(chat.ChatEvent{Type: chat.EventThinking, Text: event.Thinking})
+			}
+		case agent.EventThinkingEnd:
+			emit(chat.ChatEvent{Type: chat.EventThinkingEnd})
+		case agent.EventToolStart:
+			if event.ToolCall != nil {
+				answerAt = time.Time{}
+				emit(chat.ChatEvent{
+					Type: chat.EventToolStart,
+					ToolCall: &chat.ToolCallView{
+						ID:        event.ToolCall.ID,
+						Name:      event.ToolCall.Name,
+						Arguments: strings.TrimSpace(string(event.ToolCall.Arguments)),
+					},
+				})
+			}
+		case agent.EventToolEnd:
+			if event.ToolCall != nil && event.ToolResult != nil {
+				emit(chat.ChatEvent{
+					Type:       chat.EventToolEnd,
+					ToolResult: chat.ToolResultViewFrom(*event.ToolCall, *event.ToolResult),
+				})
+			}
+		case agent.EventMessageEnd:
+			if event.Message == nil || event.Message.Role == ai.RoleSystem {
 				return
 			}
-			switch event.Type {
-			case agent.EventMessageDelta:
-				if event.Text != "" {
-					if answerAt.IsZero() {
-						answerAt = time.Now()
-					}
-					emit(chat.ChatEvent{Type: chat.EventMessageDelta, Text: event.Text})
+			message := ai.CloneMessage(*event.Message)
+			var thinkingDuration time.Duration
+			if message.Role == ai.RoleAssistant && len(message.ToolCalls()) == 0 {
+				endedAt := answerAt
+				if endedAt.IsZero() {
+					endedAt = time.Now()
 				}
-			case agent.EventThinkingStart:
-				answerAt = time.Time{}
-				emit(chat.ChatEvent{Type: chat.EventThinkingStart})
-			case agent.EventThinkingDelta:
-				if event.Thinking != "" {
-					answerAt = time.Time{}
-					emit(chat.ChatEvent{Type: chat.EventThinking, Text: event.Thinking})
-				}
-			case agent.EventThinkingEnd:
-				emit(chat.ChatEvent{Type: chat.EventThinkingEnd})
-			case agent.EventToolStart:
-				if event.ToolCall != nil {
-					answerAt = time.Time{}
-					emit(chat.ChatEvent{
-						Type: chat.EventToolStart,
-						ToolCall: &chat.ToolCallView{
-							ID:        event.ToolCall.ID,
-							Name:      event.ToolCall.Name,
-							Arguments: strings.TrimSpace(string(event.ToolCall.Arguments)),
-						},
-					})
-				}
-			case agent.EventToolEnd:
-				if event.ToolCall != nil && event.ToolResult != nil {
-					emit(chat.ChatEvent{
-						Type:       chat.EventToolEnd,
-						ToolResult: chat.ToolResultViewFrom(*event.ToolCall, *event.ToolResult),
-					})
-				}
-			case agent.EventMessageEnd:
-				if event.Message == nil || event.Message.Role == ai.RoleSystem {
-					return
-				}
-				message := ai.CloneMessage(*event.Message)
-				var thinkingDuration time.Duration
-				if message.Role == ai.RoleAssistant && len(message.ToolCalls()) == 0 {
-					endedAt := answerAt
-					if endedAt.IsZero() {
-						endedAt = time.Now()
-					}
-					if elapsed := endedAt.Sub(runStarted); elapsed > 0 {
-						thinkingDuration = elapsed
-					}
-				}
-				persist(message, thinkingDuration)
-				if message.Role != ai.RoleUser {
-					emit(chat.ChatEvent{
-						Type:    chat.EventMessage,
-						Message: pointer(chat.FromMessage(message, nextIndex)),
-					})
-					nextIndex++
+				if elapsed := endedAt.Sub(runStarted); elapsed > 0 {
+					thinkingDuration = elapsed
 				}
 			}
-		}),
+			persist(message, thinkingDuration)
+			if message.Role != ai.RoleUser {
+				emit(chat.ChatEvent{
+					Type:    chat.EventMessage,
+					Message: pointer(chat.FromMessage(message, nextIndex)),
+				})
+				nextIndex++
+			}
+		}
+	}
+	unsubscribe := assistant.Subscribe(handleEvent)
+	defer unsubscribe()
+
+	var (
+		result agent.Result
+		runErr error
 	)
+	if continueRun {
+		result, runErr = assistant.Continue(runCtx)
+	} else {
+		result, runErr = assistant.Prompt(runCtx, content)
+	}
 
 	if sinkErr != nil {
 		return sinkErr
@@ -464,15 +622,33 @@ func (s *Service) run(
 		})
 		return nil
 	}
+	var usage *chat.UsageView
+	if hasUsage(result.Usage) {
+		usage = chat.UsageViewFrom(result.Usage)
+		if err := s.store.AppendUsage(conversationID, result.Usage); err != nil {
+			emit(chat.ChatEvent{
+				Type:  chat.EventError,
+				Code:  "usage_failed",
+				Error: "保存用量失败：" + err.Error(),
+			})
+			return nil
+		}
+	}
 	if runErr != nil {
 		if errors.Is(runErr, context.Canceled) || errors.Is(runCtx.Err(), context.Canceled) {
-			emit(chat.ChatEvent{Type: chat.EventRunEnd, Steps: result.Steps, Cancelled: true})
+			emit(chat.ChatEvent{
+				Type:      chat.EventRunEnd,
+				Steps:     result.Steps,
+				Usage:     usage,
+				Cancelled: true,
+			})
 			return nil
 		}
 		if errors.Is(runErr, agent.ErrMaxSteps) {
 			emit(chat.ChatEvent{
-				Type: chat.EventError,
-				Code: "max_steps",
+				Type:  chat.EventError,
+				Code:  "max_steps",
+				Usage: usage,
 				Error: fmt.Sprintf(
 					"这次任务已达到单次 %d 个模型轮次的上限。当前进度已保存，回复“继续”可以接着完成。",
 					chat.MaxSteps,
@@ -483,25 +659,27 @@ func (s *Service) run(
 		emit(chat.ChatEvent{
 			Type:  chat.EventError,
 			Code:  "agent_error",
+			Usage: usage,
 			Error: runErr.Error(),
 		})
 		return nil
 	}
 
-	if err := s.store.AppendUsage(conversationID, result.Usage); err != nil {
-		emit(chat.ChatEvent{
-			Type:  chat.EventError,
-			Code:  "usage_failed",
-			Error: "保存用量失败：" + err.Error(),
-		})
-		return nil
-	}
 	emit(chat.ChatEvent{
 		Type:  chat.EventRunEnd,
-		Usage: chat.UsageViewFrom(result.Usage),
+		Usage: usage,
 		Steps: result.Steps,
 	})
 	return nil
+}
+
+func hasUsage(usage ai.Usage) bool {
+	return usage.PromptTokens != 0 ||
+		usage.CompletionTokens != 0 ||
+		usage.CacheReadTokens != 0 ||
+		usage.CacheWriteTokens != 0 ||
+		usage.ReasoningTokens != 0 ||
+		usage.TotalTokens != 0
 }
 
 // appendRuntimeMemory keeps dynamic memory in an append-only history event.
@@ -545,6 +723,16 @@ func (s *Service) appendRuntimeMemory(
 		ContextKind: prompt.RuntimeMemoryKind,
 		ContextHash: context.Hash,
 	}), nil
+}
+
+func visibleRecordCount(records []store.MessageRecord) int {
+	count := 0
+	for _, record := range records {
+		if record.ContextKind == "" {
+			count++
+		}
+	}
+	return count
 }
 
 func (s *Service) beginRun(ctx context.Context, conversationID string) (*activeRun, context.Context, error) {

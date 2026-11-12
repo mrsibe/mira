@@ -3,6 +3,7 @@ package main
 
 import (
 	"log"
+	"net/url"
 	"path/filepath"
 	"runtime"
 	"sync/atomic"
@@ -21,9 +22,34 @@ import (
 
 var mainWindow atomic.Pointer[mygo.Window]
 
+const disableBrowserZoom = `
+(() => {
+	const stopZoomWheel = (event) => {
+		if (!event.ctrlKey && !event.metaKey) return;
+		event.preventDefault();
+		event.stopPropagation();
+	};
+	const stopZoomKey = (event) => {
+		if (!event.ctrlKey && !event.metaKey) return;
+		if (event.key !== "+" && event.key !== "=" && event.key !== "-" && event.key !== "_" && event.key !== "0") return;
+		event.preventDefault();
+		event.stopPropagation();
+	};
+	window.addEventListener("wheel", stopZoomWheel, { passive: false, capture: true });
+	window.addEventListener("keydown", stopZoomKey, { capture: true });
+})();
+`
+
 func main() {
 	app := mygo.App
-	app.SetName("Mira")
+	if mygo.IsDev() {
+		app.SetName("Mira Dev")
+	}
+	if !app.RequestSingleInstanceLock() {
+		return
+	}
+	app.OnSecondInstance(func([]string, string) { showMainWindow() })
+	app.SetDMABUFRenderer(mygo.DMABUFRendererAuto)
 
 	dataDir, err := app.Path(mygo.PathUserData)
 	if err != nil {
@@ -53,17 +79,53 @@ func main() {
 	app.WhenReady(func() {
 		app.SetMenu(mygo.NewMenu([]*mygo.MenuItem{
 			{Role: mygo.RoleAppMenu},
+			{Role: mygo.RoleEditMenu},
 		}))
-		openWindow()
+		showMainWindow()
+	})
+	app.OnWindowAllClosed(func() {
+		if runtime.GOOS != "darwin" {
+			app.Quit()
+		}
 	})
 	app.OnActivate(func(hasVisibleWindows bool) {
 		if !hasVisibleWindows {
-			openWindow()
+			showMainWindow()
 		}
 	})
 	if err := app.Run(); err != nil {
 		log.Fatal(err)
 	}
+}
+
+func showMainWindow() {
+	if focusOpenWindow() {
+		return
+	}
+	mygo.App.WhenReady(func() {
+		if focusOpenWindow() {
+			return
+		}
+		openWindow()
+	})
+}
+
+func focusOpenWindow() bool {
+	window := mainWindow.Load()
+	if window == nil {
+		return false
+	}
+	if window.IsDestroyed() {
+		mainWindow.CompareAndSwap(window, nil)
+		return false
+	}
+	if window.IsMinimized() {
+		window.Restore()
+	}
+	window.Show()
+	window.Focus()
+	mygo.App.Focus()
+	return true
 }
 
 func openWindow() {
@@ -78,12 +140,33 @@ func openWindow() {
 		TitleBarHeight:  48,
 		StateKey:        "main",
 		URL:             "/",
+		Page: mygo.PageOptions{
+			PreloadScript: disableBrowserZoom,
+		},
 	}
 	if runtime.GOOS == "darwin" {
 		options.TitleBarStyle = mygo.TitleBarHiddenInset
 	}
 	window := mygo.NewWindow(options)
 	mainWindow.Store(window)
+	window.OnClosed(func() {
+		mainWindow.CompareAndSwap(window, nil)
+	})
+	window.Page().OnWillNavigate(func(event *mygo.NavigateEvent) {
+		if !event.UserInitiated {
+			return
+		}
+		target, err := url.Parse(event.URL)
+		if err != nil || (target.Scheme != "http" && target.Scheme != "https") {
+			return
+		}
+		event.PreventDefault()
+		go func() {
+			if err := mygo.Shell.OpenExternal(event.URL); err != nil {
+				log.Printf("open %s: %v", event.URL, err)
+			}
+		}()
+	})
 }
 
 func applyTheme(mode string) error {

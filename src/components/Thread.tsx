@@ -1,6 +1,7 @@
 import { ArrowDown } from "lucide-react";
 import { useMemo } from "react";
-import { collectToolResults, groupMessages } from "../lib/activity";
+import { collectToolResults, groupMessages, sumUsage } from "../lib/activity";
+import { formatCount, usageDetails } from "../lib/format";
 import type { RunView } from "../lib/types";
 import type { UIMessage } from "../mygo";
 import { CompletedTurn, LiveTurn } from "./thread/AssistantTurn";
@@ -14,6 +15,10 @@ type ThreadProps = {
   scrollTarget?: { conversationId: string; messageIndex: number } | null;
   intelligentUIEnabled: boolean;
   onAskAgent: (message: string) => void;
+  busy?: boolean;
+  onEditMessage?: (message: UIMessage, content: string) => void;
+  onRegenerate?: (messageIndex: number) => void;
+  onFork?: (messageIndex: number) => void;
 };
 
 export function Thread({
@@ -23,6 +28,10 @@ export function Thread({
   scrollTarget,
   intelligentUIEnabled,
   onAskAgent,
+  busy = false,
+  onEditMessage,
+  onRegenerate,
+  onFork,
 }: ThreadProps) {
   const {
     scrollRef,
@@ -37,6 +46,9 @@ export function Thread({
 
   const items = useMemo(() => groupMessages(messages), [messages]);
   const toolResults = useMemo(() => collectToolResults(messages), [messages]);
+  const totalUsage = useMemo(() => sumUsage(messages, run?.usage), [messages, run?.usage]);
+  const lastItem = items[items.length - 1];
+  const lastAssistantKey = lastItem?.kind === "assistant" ? lastItem.key : null;
 
   return (
     <div className="thread-shell">
@@ -52,7 +64,12 @@ export function Thread({
         <div className="thread">
           {items.map((item) =>
             item.kind === "user" ? (
-              <UserMessage key={item.key} message={item.message} />
+              <UserMessage
+                key={item.key}
+                message={item.message}
+                busy={busy}
+                onEdit={onEditMessage}
+              />
             ) : (
               <CompletedTurn
                 key={item.key}
@@ -61,6 +78,15 @@ export function Thread({
                 conversationId={conversationId}
                 intelligentUIEnabled={intelligentUIEnabled}
                 onAskAgent={onAskAgent}
+                canRegenerate={
+                  Boolean(onRegenerate) &&
+                  run?.status !== "running" &&
+                  !busy &&
+                  item.key === lastAssistantKey
+                }
+                busy={busy}
+                onRegenerate={onRegenerate}
+                onFork={onFork}
               />
             ),
           )}
@@ -71,6 +97,11 @@ export function Thread({
               intelligentUIEnabled={intelligentUIEnabled}
               onAskAgent={onAskAgent}
             />
+          )}
+          {totalUsage.totalTokens > 0 && (
+            <div className="thread-usage" title={usageDetails(totalUsage)}>
+              本对话共 {formatCount(totalUsage.totalTokens)} tokens
+            </div>
           )}
           <div ref={spacerRef} className="thread-anchor-spacer" aria-hidden="true" />
         </div>

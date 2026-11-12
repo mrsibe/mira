@@ -30,4 +30,25 @@ describe("UserMessage", () => {
     expect(container.querySelector(".user-bubble")?.classList.contains("collapsed")).toBe(false);
     expect(screen.getByRole("button", { name: "收起" })).toBeTruthy();
   });
+
+  it("edits the message and submits the replacement", () => {
+    const onEdit = vi.fn();
+    render(
+      <UserMessage
+        message={{
+          index: 3,
+          role: "user",
+          blocks: [{ type: "text", text: "原来的问题" }],
+        }}
+        onEdit={onEdit}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "编辑" }));
+    const editor = screen.getByRole("textbox", { name: "编辑消息" });
+    fireEvent.change(editor, { target: { value: "修改后的问题" } });
+    fireEvent.click(screen.getByRole("button", { name: "保存并重新生成" }));
+
+    expect(onEdit).toHaveBeenCalledWith(expect.objectContaining({ index: 3 }), "修改后的问题");
+  });
 });

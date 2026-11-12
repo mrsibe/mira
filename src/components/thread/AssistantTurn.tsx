@@ -21,14 +21,24 @@ export function CompletedTurn({
   conversationId,
   intelligentUIEnabled,
   onAskAgent,
+  canRegenerate,
+  busy,
+  onRegenerate,
+  onFork,
 }: {
   messages: UIMessage[];
   tools: Map<string, ToolResultView>;
   conversationId: string;
   intelligentUIEnabled: boolean;
   onAskAgent: (message: string) => void;
+  canRegenerate: boolean;
+  busy: boolean;
+  onRegenerate?: (messageIndex: number) => void;
+  onFork?: (messageIndex: number) => void;
 }) {
   const view = useMemo(() => buildCompletedTurn(messages, tools), [messages, tools]);
+  const actionIndex = messages[0]?.index;
+  const completed = view.messageIndex !== undefined && actionIndex !== undefined;
   return (
     <AssistantTurn
       view={view}
@@ -36,6 +46,16 @@ export function CompletedTurn({
       conversationId={conversationId}
       intelligentUIEnabled={intelligentUIEnabled}
       onAskAgent={onAskAgent}
+      canRegenerate={canRegenerate}
+      busy={busy}
+      onRegenerate={
+        completed && onRegenerate && actionIndex !== undefined
+          ? () => onRegenerate(actionIndex)
+          : undefined
+      }
+      onFork={
+        completed && onFork && actionIndex !== undefined ? () => onFork(actionIndex) : undefined
+      }
     />
   );
 }
@@ -59,6 +79,8 @@ export function LiveTurn({
       conversationId={conversationId}
       intelligentUIEnabled={intelligentUIEnabled}
       onAskAgent={onAskAgent}
+      canRegenerate={false}
+      busy={false}
     />
   );
 }
@@ -69,12 +91,20 @@ function AssistantTurn({
   conversationId,
   intelligentUIEnabled,
   onAskAgent,
+  canRegenerate,
+  busy,
+  onRegenerate,
+  onFork,
 }: {
   view: AssistantTurnView;
   live: boolean;
   conversationId: string;
   intelligentUIEnabled: boolean;
   onAskAgent: (message: string) => void;
+  canRegenerate: boolean;
+  busy: boolean;
+  onRegenerate?: () => void;
+  onFork?: () => void;
 }) {
   const { activity, answer, error, streaming, thinkingDurationMs, segments } = view;
   const hasAnswer = answer.trim().length > 0;
@@ -129,7 +159,15 @@ function AssistantTurn({
             />
           ) : null,
         )}
-        {hasAnswer && !live && <MessageActions text={answer} />}
+        {hasContent && !live && (
+          <MessageActions
+            text={answer}
+            usage={view.usage}
+            busy={busy}
+            onRegenerate={canRegenerate ? onRegenerate : undefined}
+            onFork={onFork}
+          />
+        )}
         {error && (
           <div className="error-card">
             <AlertCircle size={17} />

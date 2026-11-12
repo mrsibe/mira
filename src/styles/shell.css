@@ -161,13 +161,21 @@ body.sidebar-resizing * {
   display: none;
 }
 
-.new-chat {
+.sidebar-actions {
   display: flex;
   flex: none;
   align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-2);
+}
+
+.new-chat {
+  display: flex;
+  flex: 1;
+  align-items: center;
   gap: var(--space-2);
+  min-width: 0;
   height: 40px;
-  margin: var(--space-2) var(--space-2) var(--space-2);
   padding: 0 10px;
   color: var(--text);
   font-size: var(--text-14);
@@ -182,62 +190,9 @@ body.sidebar-resizing * {
   background: var(--bg-hover);
 }
 
-.search-box {
-  display: flex;
-  flex: none;
-  align-items: center;
-  gap: var(--space-2);
-  height: 36px;
-  margin: 0 var(--space-2) var(--space-2);
-  padding: 0 10px;
-  color: var(--text-tertiary);
-  background: transparent;
-  border: 1px solid transparent;
-  border-radius: var(--radius-1);
-}
-
-.search-box:hover {
-  color: var(--text-secondary);
-  background: var(--bg-hover);
-}
-
-.search-box:focus-within {
-  color: var(--text-secondary);
-  background: var(--bg-subtle);
-  border-color: var(--border);
-}
-
-.search-box input {
-  flex: 1;
-  min-width: 0;
-  padding: 0;
-  color: var(--text);
-  font-size: 13px;
-  background: transparent;
-  border: 0;
-  outline: 0;
-}
-
-.search-box input::placeholder {
-  color: var(--text-tertiary);
-}
-
-.search-clear {
-  display: grid;
-  flex: none;
-  width: 22px;
-  height: 22px;
-  padding: 0;
-  color: var(--text-tertiary);
-  background: transparent;
-  border: 0;
-  border-radius: var(--radius-1);
-  place-items: center;
-}
-
-.search-clear:hover {
-  color: var(--text);
-  background: var(--bg-hover);
+.sidebar-search-button {
+  width: 40px;
+  height: 40px;
 }
 
 .conversation-list {
@@ -530,7 +485,7 @@ body.conversation-dragging * {
   min-width: 0;
   padding: 3px 6px;
   color: var(--text);
-  font-size: 13px;
+  font-size: calc(13px * var(--text-scale));
   background: var(--bg);
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-1);
@@ -540,7 +495,7 @@ body.conversation-dragging * {
 .sidebar-empty {
   margin: var(--space-5) var(--space-2);
   color: var(--text-tertiary);
-  font-size: 13px;
+  font-size: calc(13px * var(--text-scale));
   text-align: center;
 }
 
@@ -562,7 +517,7 @@ body.conversation-dragging * {
   width: 100%;
   padding: var(--space-2);
   color: var(--text-secondary);
-  font-size: 13px;
+  font-size: calc(13px * var(--text-scale));
   text-align: left;
   background: transparent;
   border: 0;
@@ -607,7 +562,7 @@ body.conversation-dragging * {
   margin: var(--space-2) auto 0;
   padding: var(--space-2) var(--space-3);
   color: var(--text);
-  font-size: 13px;
+  font-size: calc(13px * var(--text-scale));
   background: var(--warning-soft);
   border: 1px solid var(--warning-border);
   border-radius: var(--radius-1);
@@ -617,7 +572,7 @@ body.conversation-dragging * {
   flex: none;
   padding: 0;
   color: var(--text);
-  font-size: 13px;
+  font-size: calc(13px * var(--text-scale));
   font-weight: 500;
   text-decoration: underline;
   text-underline-offset: 2px;

@@ -66,8 +66,8 @@ describe("appearance", () => {
     );
 
     expect(root.style.getPropertyValue("--font-sans")).toContain('"My \\"Quoted\\" Font"');
-    expect(root.style.getPropertyValue("--chat-font-size")).toBe("20px");
-    expect(root.style.getPropertyValue("--code-font-size")).toBe("15px");
+    expect(root.style.getPropertyValue("--chat-font-base")).toBe("20px");
+    expect(root.style.getPropertyValue("--code-font-base")).toBe("15px");
   });
 
   it("separates preset and installed font options", () => {

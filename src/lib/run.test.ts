@@ -63,4 +63,23 @@ describe("applyChatEvent", () => {
     expect(run.error).toBe("模型连接中断");
     expect(run.parts).toHaveLength(1);
   });
+
+  it("captures token usage from the run end event", () => {
+    const run = applyChatEvent(undefined, {
+      type: "run_end",
+      usage: {
+        promptTokens: 120,
+        completionTokens: 30,
+        cacheReadTokens: 80,
+        totalTokens: 150,
+      },
+    });
+
+    expect(run.usage).toEqual({
+      promptTokens: 120,
+      completionTokens: 30,
+      cacheReadTokens: 80,
+      totalTokens: 150,
+    });
+  });
 });

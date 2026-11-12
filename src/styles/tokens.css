@@ -14,8 +14,11 @@
   --titlebar-height: 48px;
   --thread-max: 768px;
   --composer-max: 880px;
-  --chat-font-size: 16px;
-  --code-font-size: 13px;
+  --text-scale: var(--mygo-text-scale, 1);
+  --chat-font-base: 16px;
+  --code-font-base: 13px;
+  --chat-font-size: calc(var(--chat-font-base) * var(--text-scale));
+  --code-font-size: calc(var(--code-font-base) * var(--text-scale));
 
   --space-1: 4px;
   --space-2: 8px;
@@ -26,12 +29,12 @@
   --space-7: 48px;
   --space-8: 64px;
 
-  --text-12: 12px;
-  --text-14: 14px;
-  --text-16: 16px;
-  --text-18: 18px;
-  --text-24: 24px;
-  --text-32: 32px;
+  --text-12: calc(12px * var(--text-scale));
+  --text-14: calc(14px * var(--text-scale));
+  --text-16: calc(16px * var(--text-scale));
+  --text-18: calc(18px * var(--text-scale));
+  --text-24: calc(24px * var(--text-scale));
+  --text-32: calc(32px * var(--text-scale));
 
   --radius-1: 8px;
   --radius-2: 12px;

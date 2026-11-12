@@ -110,6 +110,90 @@
   background: var(--bg-hover);
 }
 
+.user-message-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 2px;
+  min-height: 24px;
+  margin-top: 2px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms ease;
+}
+
+.message.user:hover .user-message-actions,
+.message.user:focus-within .user-message-actions {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.user-editor {
+  width: min(84vw, 560px);
+  max-width: 100%;
+  padding: var(--space-3);
+  background: var(--user-bubble);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-3);
+  box-shadow: var(--shadow-1);
+}
+
+.user-editor textarea {
+  display: block;
+  width: 100%;
+  min-height: 72px;
+  max-height: 320px;
+  padding: 2px 4px;
+  overflow-y: auto;
+  color: var(--text);
+  font-family: var(--font-chat);
+  font-size: var(--chat-font-size);
+  line-height: 1.6;
+  resize: none;
+  background: transparent;
+  border: 0;
+  outline: 0;
+}
+
+.user-editor-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
+.user-editor-actions button {
+  height: 30px;
+  padding: 0 var(--space-3);
+  font-size: var(--text-12);
+  border-radius: var(--radius-1);
+}
+
+.user-editor-cancel {
+  color: var(--text-secondary);
+  background: transparent;
+  border: 1px solid var(--border);
+}
+
+.user-editor-cancel:hover {
+  color: var(--text);
+  background: var(--bg-hover);
+}
+
+.user-editor-save {
+  color: var(--accent-text);
+  background: var(--accent);
+  border: 0;
+}
+
+.user-editor-save:hover:not(:disabled) {
+  opacity: 0.82;
+}
+
+.user-editor-save:disabled {
+  color: var(--text-tertiary);
+  background: var(--bg-subtle);
+}
+
 .message.assistant {
   align-items: flex-start;
 }
@@ -149,9 +233,49 @@
   border-radius: var(--radius-1);
 }
 
-.message-actions button:hover {
+.user-message-actions button {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 24px;
+  padding: 0 6px;
+  color: var(--text-tertiary);
+  font-size: var(--text-12);
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-1);
+}
+
+.message-actions button:hover,
+.user-message-actions button:hover {
   color: var(--text-secondary);
   background: var(--bg-hover);
+}
+
+.message-actions button:disabled,
+.user-message-actions button:disabled {
+  opacity: 0.45;
+  background: transparent;
+}
+
+.message-usage {
+  display: flex;
+  align-items: center;
+  height: 28px;
+  padding: 0 var(--space-2);
+  color: var(--text-tertiary);
+  font-size: var(--text-12);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.thread-usage {
+  display: flex;
+  justify-content: center;
+  padding: var(--space-2) 0 var(--space-1);
+  color: var(--text-tertiary);
+  font-size: var(--text-12);
+  font-variant-numeric: tabular-nums;
 }
 
 .jump-bottom {

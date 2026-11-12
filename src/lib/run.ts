@@ -15,6 +15,7 @@ export function applyChatEvent(current: RunView | undefined, event: ChatEvent): 
   const parts: RunPart[] = [...run.parts];
   let nextPartId = run.nextPartId;
   const next: RunView = { ...run, parts };
+  if (event.usage) next.usage = event.usage;
   const newPartId = (kind: RunPart["kind"]) => `${kind}-${nextPartId++}`;
 
   switch (event.type) {

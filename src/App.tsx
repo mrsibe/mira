@@ -4,6 +4,7 @@ import { BrandMark } from "./components/BrandMark";
 import { Composer } from "./components/Composer";
 import { ConfirmDialog } from "./components/ConfirmDialog";
 import { ProjectDialog } from "./components/ProjectDialog";
+import { SearchDialog } from "./components/SearchDialog";
 import { SettingsDialog } from "./components/SettingsDialog";
 import { Sidebar } from "./components/Sidebar";
 import { Thread } from "./components/Thread";
@@ -53,7 +54,7 @@ export default function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsSection, setSettingsSection] = useState<SettingsSection>("general");
   const [sidebarOpen, setSidebarOpen] = useState(() => window.innerWidth >= 900);
-  const [search, setSearch] = useState("");
+  const [searchOpen, setSearchOpen] = useState(false);
   const [composer, setComposer] = useState("");
   const [newConversationProjectID, setNewConversationProjectID] = useState("");
   const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort>(initialReasoningEffort);
@@ -133,6 +134,66 @@ export default function App() {
   const displayName = settings?.userName?.trim() ?? "";
   const welcomeGreeting = displayName ? `${displayName}，今天聊点什么？` : "今天聊点什么？";
 
+  const streamRun = useCallback(
+    async (id: string, start: (events: Channel<ChatEvent>) => Promise<void>) => {
+      setRuns((previous) => ({ ...previous, [id]: emptyRun() }));
+      setRunningId(id);
+
+      try {
+        const channel = new Channel<ChatEvent>();
+        const done = start(channel);
+        for await (const event of channel) {
+          setRuns((previous) => ({
+            ...previous,
+            [id]: applyChatEvent(previous[id], event),
+          }));
+        }
+        await done;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "发送失败";
+        setRuns((previous) => ({
+          ...previous,
+          [id]: { ...(previous[id] ?? emptyRun()), status: "error", error: message },
+        }));
+      } finally {
+        setRunningId((current) => (current === id ? null : current));
+        let loaded = false;
+        try {
+          await loadConversation(id);
+          loaded = true;
+        } catch {
+          // The next bootstrap or conversation switch will retry.
+        }
+        if (loaded) {
+          setRuns((previous) => {
+            const current = previous[id];
+            if (!current) return previous;
+            if (current.status === "error") {
+              return {
+                ...previous,
+                [id]: {
+                  ...current,
+                  parts: [],
+                  nextPartId: 0,
+                  usage: undefined,
+                },
+              };
+            }
+            const next = { ...previous };
+            delete next[id];
+            return next;
+          });
+        }
+        try {
+          await refreshConversations();
+        } catch {
+          // Keep the current sidebar snapshot.
+        }
+      }
+    },
+    [loadConversation, refreshConversations],
+  );
+
   const sendMessage = useCallback(
     async (raw: string) => {
       const content = raw.trim();
@@ -174,77 +235,136 @@ export default function App() {
       }));
       setScrollTarget({ conversationId: id, messageIndex: userIndex });
       setComposer("");
-      setRuns((previous) => ({ ...previous, [id]: emptyRun() }));
-      setRunningId(id);
-
-      try {
-        const channel = new Channel<ChatEvent>();
-        const done = Mira.send(
+      await streamRun(id, (channel) =>
+        Mira.send(
           id,
           content,
           { reasoningEffort: reasoningEffort === "auto" ? "" : reasoningEffort },
           channel,
-        );
-        for await (const event of channel) {
-          setRuns((previous) => ({
-            ...previous,
-            [id]: applyChatEvent(previous[id], event),
-          }));
-        }
-        await done;
-      } catch (error) {
-        const message = error instanceof Error ? error.message : "发送失败";
-        setRuns((previous) => ({
-          ...previous,
-          [id]: { ...(previous[id] ?? emptyRun()), status: "error", error: message },
-        }));
-      } finally {
-        setRunningId((current) => (current === id ? null : current));
-        let loaded = false;
-        try {
-          await loadConversation(id);
-          loaded = true;
-        } catch {
-          // The next bootstrap or conversation switch will retry.
-        }
-        if (loaded) {
-          setRuns((previous) => {
-            const current = previous[id];
-            if (!current) return previous;
-            if (current.status === "error") {
-              return {
-                ...previous,
-                [id]: {
-                  ...current,
-                  parts: [],
-                  nextPartId: 0,
-                },
-              };
-            }
-            const next = { ...previous };
-            delete next[id];
-            return next;
-          });
-        }
-        try {
-          await refreshConversations();
-        } catch {
-          // Keep the current sidebar snapshot.
-        }
-      }
+        ),
+      );
     },
     [
       activeId,
-      loadConversation,
       messages,
       newConversationProjectID,
       reasoningEffort,
-      refreshConversations,
       runningId,
       settings,
       showToast,
       openSettings,
+      streamRun,
     ],
+  );
+
+  const editMessage = useCallback(
+    async (message: UIMessage, raw: string) => {
+      const content = raw.trim();
+      if (!content || !activeId) return;
+      if (!settings?.configured) {
+        openSettings("model");
+        return;
+      }
+      if (runningId) {
+        showToast("正在生成回复，请先停止当前回复");
+        return;
+      }
+
+      const id = activeId;
+      setMessages((previous) => {
+        const current = previous[id] ?? [];
+        return {
+          ...previous,
+          [id]: [
+            ...current.slice(0, message.index),
+            { ...message, blocks: [{ type: "text", text: content }] },
+          ],
+        };
+      });
+      setScrollTarget({ conversationId: id, messageIndex: message.index });
+      await streamRun(id, (channel) =>
+        Mira.editMessage(
+          id,
+          message.index,
+          content,
+          { reasoningEffort: reasoningEffort === "auto" ? "" : reasoningEffort },
+          channel,
+        ),
+      );
+    },
+    [activeId, openSettings, reasoningEffort, runningId, settings, showToast, streamRun],
+  );
+
+  const regenerateMessage = useCallback(
+    async (messageIndex: number) => {
+      if (!activeId) return;
+      if (!settings?.configured) {
+        openSettings("model");
+        return;
+      }
+      if (runningId) {
+        showToast("正在生成回复，请先停止当前回复");
+        return;
+      }
+
+      const id = activeId;
+      const current = messages[id] ?? [];
+      let userIndex = messageIndex - 1;
+      while (userIndex >= 0 && current[userIndex]?.role !== "user") userIndex--;
+      setMessages((previous) => ({
+        ...previous,
+        [id]: (previous[id] ?? []).slice(0, messageIndex),
+      }));
+      if (userIndex >= 0) {
+        setScrollTarget({ conversationId: id, messageIndex: userIndex });
+      }
+      await streamRun(id, (channel) =>
+        Mira.regenerate(
+          id,
+          messageIndex,
+          { reasoningEffort: reasoningEffort === "auto" ? "" : reasoningEffort },
+          channel,
+        ),
+      );
+    },
+    [activeId, messages, openSettings, reasoningEffort, runningId, settings, showToast, streamRun],
+  );
+
+  const forkMessage = useCallback(
+    async (messageIndex: number) => {
+      if (!activeId) return;
+      if (runningId) {
+        showToast("正在生成回复，请先停止当前回复");
+        return;
+      }
+
+      try {
+        const detail = await Mira.forkConversation(activeId, messageIndex);
+        setMessages((previous) => ({
+          ...previous,
+          [detail.conversation.id]: detail.messages,
+        }));
+        setConversations((previous) => [
+          detail.conversation,
+          ...previous.filter((conversation) => conversation.id !== detail.conversation.id),
+        ]);
+        setActiveId(detail.conversation.id);
+        setNewConversationProjectID("");
+        setScrollTarget(null);
+        setComposer("");
+        showToast("已创建分支");
+      } catch (error) {
+        showToast(error instanceof Error ? error.message : "分叉失败");
+        return;
+      }
+
+      try {
+        await refreshConversations();
+      } catch {
+        // The new conversation is already available locally.
+      }
+    },
+    [activeId, refreshConversations, runningId, showToast],
   );
 
   const handleAskAgent = useCallback(
@@ -266,8 +386,8 @@ export default function App() {
     if (window.innerWidth < 900) setSidebarOpen(false);
   }
 
-  async function selectConversation(id: string) {
-    setScrollTarget(null);
+  async function selectConversation(id: string, messageIndex = -1) {
+    setScrollTarget(messageIndex >= 0 ? { conversationId: id, messageIndex } : null);
     setActiveId(id);
     setNewConversationProjectID("");
     if (window.innerWidth < 900) setSidebarOpen(false);
@@ -436,8 +556,7 @@ export default function App() {
           conversations={conversations}
           projects={projects}
           activeId={activeId}
-          search={search}
-          onSearch={setSearch}
+          onOpenSearch={() => setSearchOpen(true)}
           onSelect={selectConversation}
           onNew={() => newChat()}
           onNewInProject={(projectID) => newChat(projectID)}
@@ -491,6 +610,10 @@ export default function App() {
                 scrollTarget={scrollTarget}
                 intelligentUIEnabled={settings?.intelligentUIEnabled ?? true}
                 onAskAgent={handleAskAgent}
+                busy={runningId !== null}
+                onEditMessage={editMessage}
+                onRegenerate={regenerateMessage}
+                onFork={forkMessage}
               />
               <Composer
                 value={composer}
@@ -509,6 +632,16 @@ export default function App() {
           )}
         </main>
       </div>
+
+      {searchOpen && (
+        <SearchDialog
+          conversations={conversations}
+          projects={projects}
+          onSearch={Mira.searchConversations}
+          onSelect={(id, messageIndex) => void selectConversation(id, messageIndex)}
+          onClose={() => setSearchOpen(false)}
+        />
+      )}
 
       {settings && settingsOpen && (
         <SettingsDialog

@@ -51,18 +51,18 @@ function projectSection(name: string): HTMLElement {
 function renderSidebar(
   options: {
     onMove?: (id: string, projectID: string) => Promise<boolean>;
-    search?: string;
+    onOpenSearch?: () => void;
     conversations?: Conversation[];
   } = {},
 ) {
   const onMove = vi.fn(options.onMove ?? (async () => true));
+  const onOpenSearch = vi.fn(options.onOpenSearch);
   render(
     <Sidebar
       conversations={options.conversations ?? conversations}
       projects={projects}
       activeId={null}
-      search={options.search ?? ""}
-      onSearch={vi.fn()}
+      onOpenSearch={onOpenSearch}
       onSelect={vi.fn()}
       onNew={vi.fn()}
       onNewInProject={vi.fn()}
@@ -75,7 +75,7 @@ function renderSidebar(
       onSettings={vi.fn()}
     />,
   );
-  return { onMove };
+  return { onMove, onOpenSearch };
 }
 
 describe("Sidebar drag and drop", () => {
@@ -83,9 +83,28 @@ describe("Sidebar drag and drop", () => {
     vi.useRealTimers();
   });
 
+  it("starts with projects collapsed", () => {
+    renderSidebar();
+
+    expect(screen.queryByText("Project chat")).toBeNull();
+    expect(screen.queryByText("Other chat")).toBeNull();
+    expect(screen.getByRole("button", { name: "Work" }).getAttribute("aria-expanded")).toBe(
+      "false",
+    );
+  });
+
+  it("opens conversation search from the icon button", () => {
+    const { onOpenSearch } = renderSidebar();
+
+    fireEvent.click(screen.getByRole("button", { name: "搜索对话" }));
+
+    expect(onOpenSearch).toHaveBeenCalledOnce();
+  });
+
   it("moves a conversation into another project", async () => {
     const { onMove } = renderSidebar();
     const transfer = dataTransfer();
+    fireEvent.click(screen.getByRole("button", { name: "Work" }));
 
     fireEvent.dragStart(screen.getByRole("button", { name: "Project chat" }), {
       dataTransfer: transfer,
@@ -100,6 +119,7 @@ describe("Sidebar drag and drop", () => {
   it("does not move a conversation into its current project", async () => {
     const { onMove } = renderSidebar();
     const transfer = dataTransfer();
+    fireEvent.click(screen.getByRole("button", { name: "Work" }));
 
     fireEvent.dragStart(screen.getByRole("button", { name: "Project chat" }), {
       dataTransfer: transfer,
@@ -114,6 +134,7 @@ describe("Sidebar drag and drop", () => {
   it("shows a temporary target and moves a conversation out of its project", async () => {
     const { onMove } = renderSidebar();
     const transfer = dataTransfer();
+    fireEvent.click(screen.getByRole("button", { name: "Work" }));
 
     fireEvent.dragStart(screen.getByRole("button", { name: "Project chat" }), {
       dataTransfer: transfer,
@@ -134,6 +155,7 @@ describe("Sidebar drag and drop", () => {
         conversation("other-chat", "Other chat", "life"),
       ],
     });
+    fireEvent.click(screen.getByRole("button", { name: "Work" }));
 
     fireEvent.dragStart(screen.getByRole("button", { name: "Project chat" }), {
       dataTransfer: dataTransfer(),
@@ -146,7 +168,7 @@ describe("Sidebar drag and drop", () => {
   it("expands a collapsed project after hovering during a drag", () => {
     vi.useFakeTimers();
     renderSidebar();
-    fireEvent.click(screen.getByRole("button", { name: "Life" }));
+    fireEvent.click(screen.getByRole("button", { name: "Work" }));
     expect(screen.queryByText("Other chat")).toBeNull();
 
     fireEvent.dragStart(screen.getByRole("button", { name: "Project chat" }), {
@@ -156,12 +178,5 @@ describe("Sidebar drag and drop", () => {
     act(() => vi.advanceTimersByTime(700));
 
     expect(screen.getByText("Other chat")).toBeTruthy();
-  });
-
-  it("disables dragging while searching", () => {
-    renderSidebar({ search: "chat" });
-    expect(screen.getByRole("button", { name: "Project chat" }).getAttribute("draggable")).toBe(
-      "false",
-    );
   });
 });

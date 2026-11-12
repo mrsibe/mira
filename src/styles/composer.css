@@ -140,7 +140,7 @@
   display: block;
   padding: 5px 8px 4px;
   color: var(--text-tertiary);
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
   font-weight: 500;
 }
 
@@ -152,7 +152,7 @@
   height: 34px;
   padding: 0 8px;
   color: var(--text);
-  font-size: 13px;
+  font-size: calc(13px * var(--text-scale));
   text-align: left;
   background: transparent;
   border: 0;

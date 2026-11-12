@@ -46,6 +46,15 @@ type Project struct {
 	CreatedAt time.Time `json:"createdAt"`
 }
 
+// SearchResult is one conversation matched by a full-text search.
+type SearchResult struct {
+	Conversation Conversation `json:"conversation"`
+	MessageIndex int          `json:"messageIndex"`
+	Snippet      string       `json:"snippet,omitempty"`
+	Role         string       `json:"role,omitempty"`
+	MatchCount   int          `json:"matchCount,omitempty"`
+}
+
 type indexFile struct {
 	Version       int            `json:"version"`
 	Conversations []Conversation `json:"conversations"`
@@ -75,6 +84,16 @@ type entry struct {
 	ContextHash        string      `json:"contextHash,omitempty"`
 }
 
+type rawEntry struct {
+	line  []byte
+	value entry
+}
+
+type visibleMessage struct {
+	rawIndex int
+	role     ai.Role
+}
+
 // MessageRecord is a stored message together with the metadata needed to
 // restore how long the assistant worked before it started answering. Context
 // records are injected into model history but hidden from the conversation UI.
@@ -84,6 +103,7 @@ type MessageRecord struct {
 	ThinkingDurationMS int64
 	ContextKind        string
 	ContextHash        string
+	Usage              *ai.Usage
 }
 
 // Store serializes access to the index and conversation files.
@@ -135,6 +155,69 @@ func (s *Store) List() []Conversation {
 		return result[i].UpdatedAt.After(result[j].UpdatedAt)
 	})
 	return result
+}
+
+// Search finds conversations by title, preview and visible message text.
+func (s *Store) Search(query string) []SearchResult {
+	query = strings.TrimSpace(query)
+	if query == "" {
+		return nil
+	}
+	needle := strings.ToLower(query)
+
+	s.mu.Lock()
+	conversations := append([]Conversation(nil), s.entries...)
+	s.mu.Unlock()
+
+	sort.Slice(conversations, func(i, j int) bool {
+		return conversations[i].UpdatedAt.After(conversations[j].UpdatedAt)
+	})
+
+	results := make([]SearchResult, 0)
+	for _, conversation := range conversations {
+		_, records, err := s.readRecords(conversation.ID)
+		if err != nil {
+			continue
+		}
+		result := SearchResult{Conversation: conversation, MessageIndex: -1}
+		titleMatch := strings.Contains(strings.ToLower(conversation.Title), needle)
+		previewMatch := strings.Contains(strings.ToLower(conversation.Preview), needle)
+		if titleMatch || previewMatch {
+			result.Snippet = truncate(strings.Join(strings.Fields(conversation.Preview), " "), 140)
+		}
+
+		visibleIndex := 0
+		for _, record := range records {
+			if record.ContextKind != "" {
+				continue
+			}
+			messageIndex := visibleIndex
+			visibleIndex++
+			if record.Message.Role != ai.RoleUser && record.Message.Role != ai.RoleAssistant {
+				continue
+			}
+			text := record.Message.Text()
+			if text == "" || !strings.Contains(strings.ToLower(text), needle) {
+				continue
+			}
+			result.MatchCount++
+			if result.MessageIndex >= 0 {
+				continue
+			}
+			result.MessageIndex = messageIndex
+			result.Role = string(record.Message.Role)
+			result.Snippet = snippetAround(text, query, 48, 96)
+		}
+
+		if !titleMatch && !previewMatch && result.MessageIndex < 0 {
+			continue
+		}
+		if result.MessageIndex < 0 && result.Snippet == "" {
+			result.Snippet = truncate(strings.Join(strings.Fields(conversation.Preview), " "), 140)
+		}
+		results = append(results, result)
+	}
+	return results
 }
 
 // ListProjects returns projects in creation order.
@@ -403,6 +486,207 @@ func (s *Store) AppendContext(id, kind, hash string, message ai.Message) error {
 	return s.appendEntry(id, item)
 }
 
+// EditUserMessage replaces one visible user message with new text and removes
+// everything after it. The rewrite is atomic so a failed write cannot leave a
+// partially truncated transcript.
+func (s *Store) EditUserMessage(id string, messageIndex int, content string) (Conversation, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	index := s.find(id)
+	if index < 0 {
+		return Conversation{}, fmt.Errorf("会话不存在")
+	}
+	h, entries, visible, err := s.readRawConversation(id)
+	if err != nil {
+		return Conversation{}, err
+	}
+	target, err := visibleTarget(visible, messageIndex)
+	if err != nil {
+		return Conversation{}, err
+	}
+	if target.role != ai.RoleUser {
+		return Conversation{}, errors.New("只能编辑用户消息")
+	}
+
+	old := s.entries[index]
+	_, oldRecords, err := s.readRecords(id)
+	if err != nil {
+		return Conversation{}, err
+	}
+	oldDerived := derivedTitle(oldRecords)
+
+	message := ai.TextMessage(ai.RoleUser, strings.TrimSpace(content))
+	line, err := json.Marshal(entry{
+		Type:      "message",
+		Timestamp: time.Now().UTC(),
+		Message:   &message,
+	})
+	if err != nil {
+		return Conversation{}, fmt.Errorf("encode edited message: %w", err)
+	}
+	rewritten := rewriteEntries(entries[:target.rawIndex])
+	rewritten = append(rewritten, rawEntry{line: line})
+	h.ProjectID = old.ProjectID
+	if err := s.replaceRawConversation(id, h, rewritten); err != nil {
+		return Conversation{}, err
+	}
+	return s.refreshConversation(index, old, oldDerived)
+}
+
+// TruncateAssistantTurn removes one assistant turn and everything after it.
+// The preceding user message is retained so the service can continue the run
+// without duplicating it.
+func (s *Store) TruncateAssistantTurn(id string, messageIndex int) (Conversation, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	index := s.find(id)
+	if index < 0 {
+		return Conversation{}, fmt.Errorf("会话不存在")
+	}
+	h, entries, visible, err := s.readRawConversation(id)
+	if err != nil {
+		return Conversation{}, err
+	}
+	target, err := visibleTarget(visible, messageIndex)
+	if err != nil {
+		return Conversation{}, err
+	}
+	if target.role != ai.RoleAssistant {
+		return Conversation{}, errors.New("只能重新生成助手回答")
+	}
+
+	userPosition := -1
+	for position := messageIndex - 1; position >= 0; position-- {
+		if position < len(visible) && visible[position].role == ai.RoleUser {
+			userPosition = position
+			break
+		}
+	}
+	if userPosition < 0 {
+		return Conversation{}, errors.New("没有找到这条回答对应的用户消息")
+	}
+	turnPosition := -1
+	for position := userPosition + 1; position < len(visible); position++ {
+		if visible[position].role == ai.RoleAssistant {
+			turnPosition = position
+			break
+		}
+		if visible[position].role == ai.RoleUser {
+			break
+		}
+	}
+	if turnPosition < 0 || messageIndex < turnPosition {
+		return Conversation{}, errors.New("没有找到可重新生成的助手回合")
+	}
+
+	old := s.entries[index]
+	rewritten := rewriteEntries(entries[:visible[turnPosition].rawIndex])
+	h.ProjectID = old.ProjectID
+	if err := s.replaceRawConversation(id, h, rewritten); err != nil {
+		return Conversation{}, err
+	}
+	return s.refreshConversation(index, old, "")
+}
+
+// ForkAssistantTurn copies the completed assistant turn into a new
+// conversation. The source conversation is not modified.
+func (s *Store) ForkAssistantTurn(id string, messageIndex int) (Conversation, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	sourceIndex := s.find(id)
+	if sourceIndex < 0 {
+		return Conversation{}, fmt.Errorf("会话不存在")
+	}
+	source := s.entries[sourceIndex]
+	_, entries, visible, err := s.readRawConversation(id)
+	if err != nil {
+		return Conversation{}, err
+	}
+	target, err := visibleTarget(visible, messageIndex)
+	if err != nil {
+		return Conversation{}, err
+	}
+	if target.role != ai.RoleAssistant {
+		return Conversation{}, errors.New("只能从助手回答分叉")
+	}
+
+	userPosition := -1
+	for position := messageIndex - 1; position >= 0; position-- {
+		if position < len(visible) && visible[position].role == ai.RoleUser {
+			userPosition = position
+			break
+		}
+	}
+	if userPosition < 0 {
+		return Conversation{}, errors.New("没有找到这条回答对应的用户消息")
+	}
+	turnStart := -1
+	for position := userPosition + 1; position < len(visible); position++ {
+		if visible[position].role == ai.RoleAssistant {
+			turnStart = position
+			break
+		}
+		if visible[position].role == ai.RoleUser {
+			break
+		}
+	}
+	if turnStart < 0 || messageIndex < turnStart {
+		return Conversation{}, errors.New("没有找到可分叉的助手回合")
+	}
+	turnEnd := turnStart
+	for turnEnd+1 < len(visible) {
+		role := visible[turnEnd+1].role
+		if role != ai.RoleAssistant && role != ai.RoleTool {
+			break
+		}
+		turnEnd++
+	}
+	if messageIndex > turnEnd {
+		return Conversation{}, errors.New("只能从完整助手回合分叉")
+	}
+
+	cut := visible[turnEnd].rawIndex + 1
+	for cut < len(entries) && entries[cut].value.Message == nil && entries[cut].value.Type == "usage" {
+		cut++
+	}
+	copied := rewriteEntries(entries[:cut])
+	if len(copied) == 0 {
+		return Conversation{}, errors.New("这轮回答没有可复制的内容")
+	}
+
+	now := time.Now().UTC()
+	newID, err := newID(now)
+	if err != nil {
+		return Conversation{}, fmt.Errorf("generate conversation id: %w", err)
+	}
+	header := header{
+		Type:      "conversation",
+		Version:   fileVersion,
+		ID:        newID,
+		ProjectID: source.ProjectID,
+		CreatedAt: now,
+	}
+	if err := s.createRawConversation(newID, header, copied); err != nil {
+		return Conversation{}, err
+	}
+	info, _, err := s.readRecords(newID)
+	if err != nil {
+		_ = os.Remove(s.path(newID))
+		return Conversation{}, err
+	}
+	info.Title = truncate(source.Title+"（分支）", 80)
+	s.entries = append(s.entries, info)
+	if err := s.writeIndex(s.entries); err != nil {
+		s.entries = s.entries[:len(s.entries)-1]
+		_ = os.Remove(s.path(newID))
+		return Conversation{}, err
+	}
+	return info, nil
+}
+
 // Rename updates a conversation title.
 func (s *Store) Rename(id, title string) error {
 	s.mu.Lock()
@@ -649,6 +933,180 @@ func (s *Store) appendEntry(id string, item entry) error {
 	return file.Sync()
 }
 
+func (s *Store) readRawConversation(id string) (header, []rawEntry, []visibleMessage, error) {
+	file, err := os.Open(s.path(id))
+	if err != nil {
+		return header{}, nil, nil, fmt.Errorf("open conversation: %w", err)
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	scanner.Buffer(make([]byte, 64*1024), 8*1024*1024)
+	var (
+		h        header
+		entries  []rawEntry
+		visible  []visibleMessage
+		seenHead bool
+	)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
+		if !seenHead {
+			if err := json.Unmarshal([]byte(line), &h); err != nil {
+				return header{}, nil, nil, fmt.Errorf("parse conversation header: %w", err)
+			}
+			if h.Type != "conversation" || h.Version != fileVersion {
+				return header{}, nil, nil, fmt.Errorf("unsupported conversation file")
+			}
+			seenHead = true
+			continue
+		}
+
+		var item entry
+		if err := json.Unmarshal([]byte(line), &item); err != nil {
+			return header{}, nil, nil, fmt.Errorf("parse conversation entry: %w", err)
+		}
+		rawIndex := len(entries)
+		entries = append(entries, rawEntry{line: []byte(line), value: item})
+		if item.Message != nil && item.ContextKind == "" {
+			visible = append(visible, visibleMessage{rawIndex: rawIndex, role: item.Message.Role})
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return header{}, nil, nil, fmt.Errorf("read conversation: %w", err)
+	}
+	if !seenHead {
+		return header{}, nil, nil, fmt.Errorf("conversation file is empty")
+	}
+	return h, entries, visible, nil
+}
+
+func visibleTarget(visible []visibleMessage, index int) (visibleMessage, error) {
+	if index < 0 || index >= len(visible) {
+		return visibleMessage{}, errors.New("消息不存在")
+	}
+	return visible[index], nil
+}
+
+func rewriteEntries(entries []rawEntry) []rawEntry {
+	result := make([]rawEntry, 0, len(entries))
+	for _, item := range entries {
+		if item.value.Type == "project" {
+			continue
+		}
+		result = append(result, item)
+	}
+	return result
+}
+
+func (s *Store) replaceRawConversation(id string, h header, entries []rawEntry) error {
+	tmp, err := os.CreateTemp(s.dir, ".conversation-*.tmp")
+	if err != nil {
+		return fmt.Errorf("create conversation rewrite: %w", err)
+	}
+	tmpPath := tmp.Name()
+	defer os.Remove(tmpPath)
+	if err := tmp.Chmod(0o600); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := writeRawConversation(tmp, h, entries); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(tmpPath, s.path(id)); err != nil {
+		return fmt.Errorf("replace conversation: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) createRawConversation(id string, h header, entries []rawEntry) error {
+	file, err := os.OpenFile(s.path(id), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+	if err != nil {
+		return fmt.Errorf("create conversation: %w", err)
+	}
+	if err := writeRawConversation(file, h, entries); err != nil {
+		file.Close()
+		_ = os.Remove(s.path(id))
+		return err
+	}
+	if err := file.Sync(); err != nil {
+		file.Close()
+		_ = os.Remove(s.path(id))
+		return err
+	}
+	if err := file.Close(); err != nil {
+		_ = os.Remove(s.path(id))
+		return err
+	}
+	return nil
+}
+
+func writeRawConversation(file *os.File, h header, entries []rawEntry) error {
+	data, err := json.Marshal(h)
+	if err != nil {
+		return fmt.Errorf("encode conversation header: %w", err)
+	}
+	if _, err := file.Write(append(data, '\n')); err != nil {
+		return fmt.Errorf("write conversation header: %w", err)
+	}
+	for _, item := range entries {
+		line := item.line
+		if len(line) == 0 {
+			line, err = json.Marshal(item.value)
+			if err != nil {
+				return fmt.Errorf("encode conversation entry: %w", err)
+			}
+		}
+		if _, err := file.Write(append(line, '\n')); err != nil {
+			return fmt.Errorf("write conversation entry: %w", err)
+		}
+	}
+	return nil
+}
+
+func (s *Store) refreshConversation(index int, old Conversation, oldDerivedTitle string) (Conversation, error) {
+	info, _, err := s.readRecords(old.ID)
+	if err != nil {
+		return Conversation{}, err
+	}
+	info.ID = old.ID
+	info.ProjectID = old.ProjectID
+	info.CreatedAt = old.CreatedAt
+	if old.Title != defaultTitle && old.Title != oldDerivedTitle {
+		info.Title = old.Title
+	}
+
+	previous := s.entries[index]
+	s.entries[index] = info
+	if err := s.writeIndex(s.entries); err != nil {
+		s.entries[index] = previous
+		return Conversation{}, err
+	}
+	return info, nil
+}
+
+func derivedTitle(records []MessageRecord) string {
+	for _, record := range records {
+		if record.ContextKind != "" || record.Message.Role != ai.RoleUser {
+			continue
+		}
+		if title := titleFromText(record.Message.Text()); title != "" {
+			return title
+		}
+	}
+	return ""
+}
+
 func (s *Store) readRecords(id string) (Conversation, []MessageRecord, error) {
 	file, err := os.Open(s.path(id))
 	if err != nil {
@@ -700,6 +1158,9 @@ func (s *Store) readRecords(id string) (Conversation, []MessageRecord, error) {
 			info.UpdatedAt = item.Timestamp
 		}
 		if item.Message == nil {
+			if item.Usage != nil {
+				attachUsage(records, *item.Usage)
+			}
 			continue
 		}
 		records = append(records, MessageRecord{
@@ -735,6 +1196,22 @@ func (s *Store) readRecords(id string) (Conversation, []MessageRecord, error) {
 	return info, records, nil
 }
 
+func attachUsage(records []MessageRecord, usage ai.Usage) {
+	for index := len(records) - 1; index >= 0; index-- {
+		record := &records[index]
+		if record.ContextKind != "" || record.Message.Role != ai.RoleAssistant {
+			continue
+		}
+		copied := usage
+		if record.Usage == nil {
+			record.Usage = &copied
+		} else {
+			record.Usage.Add(copied)
+		}
+		return
+	}
+}
+
 func newID(now time.Time) (string, error) {
 	var random [4]byte
 	if _, err := rand.Read(random[:]); err != nil {
@@ -763,4 +1240,26 @@ func truncate(text string, limit int) string {
 		return text
 	}
 	return string(runes[:limit]) + "…"
+}
+
+func snippetAround(text, query string, before, after int) string {
+	compact := strings.Join(strings.Fields(text), " ")
+	lowerText := strings.ToLower(compact)
+	byteIndex := strings.Index(lowerText, strings.ToLower(query))
+	if byteIndex < 0 {
+		return truncate(compact, before+after)
+	}
+
+	runes := []rune(compact)
+	position := len([]rune(lowerText[:byteIndex]))
+	start := max(0, position-before)
+	end := min(len(runes), position+len([]rune(query))+after)
+	snippet := string(runes[start:end])
+	if start > 0 {
+		snippet = "…" + snippet
+	}
+	if end < len(runes) {
+		snippet += "…"
+	}
+	return snippet
 }

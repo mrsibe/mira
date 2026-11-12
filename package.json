@@ -23,7 +23,7 @@
     "@json-render/react": "0.22.0",
     "highlight.js": "^11.12.0",
     "lucide-react": "^1.70.0",
-    "mygo-runtime": "^0.8.3",
+    "mygo-runtime": "0.9.0",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
     "react-is": "19.3.1",
@@ -40,7 +40,7 @@
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.3.0",
     "jsdom": "^31.0.0",
-    "mygo-cli": "^0.8.3",
+    "mygo-cli": "0.9.0",
     "typescript": "^7",
     "vite": "^8",
     "vitest": "^5.1.0"
