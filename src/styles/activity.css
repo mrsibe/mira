@@ -232,7 +232,7 @@
   overflow-x: auto;
   color: var(--text);
   font-family: var(--font-mono);
-  font-size: var(--text-12);
+  font-size: var(--code-font-size);
   line-height: 1.6;
   overflow-wrap: anywhere;
   white-space: pre-wrap;

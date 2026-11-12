@@ -1,6 +1,7 @@
-import { type FormEvent, useCallback, useState } from "react";
+import { type FormEvent, useCallback, useEffect, useState } from "react";
+import type { Appearance } from "../lib/appearance";
 import type { SettingsSection, ThemeMode } from "../lib/types";
-import type { Input, View } from "../mygo";
+import { type Input, Mira, type View } from "../mygo";
 import { Button, Modal, Notice } from "../ui";
 import { AboutSettings } from "./settings/AboutSettings";
 import { GeneralSettings } from "./settings/GeneralSettings";
@@ -15,33 +16,52 @@ import { useMemoryEditor } from "./settings/useMemoryEditor";
 type SettingsDialogProps = {
   settings: View;
   theme: ThemeMode;
+  appearance: Appearance;
   initialSection: SettingsSection;
   onClose: () => void;
   onSave: (input: Input) => Promise<View>;
   onClearKey: () => Promise<View>;
   onClearTavilyKey: () => Promise<View>;
   onThemeChange: (theme: ThemeMode) => void;
+  onAppearanceChange: (appearance: Appearance) => void;
 };
 
 export function SettingsDialog({
   settings,
   theme,
+  appearance,
   initialSection,
   onClose,
   onSave,
   onClearKey,
   onClearTavilyKey,
   onThemeChange,
+  onAppearanceChange,
 }: SettingsDialogProps) {
   const [section, setSection] = useState<SettingsSection>(initialSection);
   const [draft, setDraft] = useState<SettingsDraft>(() => createDraft(settings));
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [saving, setSaving] = useState(false);
+  const [systemFonts, setSystemFonts] = useState<string[]>([]);
   const memory = useMemoryEditor({
     active: section === "memory",
     onError: setError,
   });
+
+  useEffect(() => {
+    let active = true;
+    void Mira.listFonts()
+      .then((fonts) => {
+        if (active) setSystemFonts(fonts);
+      })
+      .catch(() => {
+        // Preset fonts remain available when system font discovery fails.
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const setField = useCallback(<K extends keyof SettingsDraft>(key: K, value: SettingsDraft[K]) => {
     setDraft((current) => ({ ...current, [key]: value }));
@@ -122,7 +142,13 @@ export function SettingsDialog({
           </h2>
           <div className="settings-content">
             {section === "general" && (
-              <GeneralSettings theme={theme} onThemeChange={onThemeChange} />
+              <GeneralSettings
+                theme={theme}
+                onThemeChange={onThemeChange}
+                appearance={appearance}
+                systemFonts={systemFonts}
+                onAppearanceChange={onAppearanceChange}
+              />
             )}
             {section === "personalization" && (
               <PersonalizationSettings draft={draft} setField={setField} />
@@ -156,8 +182,8 @@ export function SettingsDialog({
 
           <footer className="modal-actions settings-footer">
             <span className="spacer" />
-            {section === "about" ? (
-              <Button onClick={onClose}>关闭</Button>
+            {section === "about" || section === "general" ? (
+              <Button onClick={onClose}>完成</Button>
             ) : (
               <>
                 <Button onClick={onClose}>取消</Button>

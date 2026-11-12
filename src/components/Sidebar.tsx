@@ -9,13 +9,24 @@ import {
   X,
 } from "lucide-react";
 import {
+  type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
+  type PointerEvent as ReactPointerEvent,
   useCallback,
   useEffect,
   useRef,
   useState,
 } from "react";
 import { buildSidebarModel } from "../lib/sidebar";
+import {
+  applySidebarWidth,
+  clampSidebarWidthForViewport,
+  defaultSidebarWidth,
+  loadPreferredSidebarWidth,
+  maxSidebarWidthForViewport,
+  minSidebarWidth,
+  savePreferredSidebarWidth,
+} from "../lib/sidebarWidth";
 import type { Conversation, Project } from "../mygo";
 import { IconButton } from "../ui";
 import { ConversationMenu, ProjectMenu } from "./SidebarMenus";
@@ -65,10 +76,62 @@ export function Sidebar({
   const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
   const [menu, setMenu] = useState<MenuState>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const [viewportWidth, setViewportWidth] = useState(() => window.innerWidth);
+  const [preferredSidebarWidth, setPreferredSidebarWidth] = useState(loadPreferredSidebarWidth);
+  const [resizing, setResizing] = useState(false);
+  const sidebarWidth = clampSidebarWidthForViewport(preferredSidebarWidth, viewportWidth);
+  const sidebarWidthRef = useRef(sidebarWidth);
+  const dragRef = useRef<{ startX: number; startWidth: number } | null>(null);
+  sidebarWidthRef.current = sidebarWidth;
 
   useEffect(() => {
     if (editingId) inputRef.current?.focus();
   }, [editingId]);
+
+  useEffect(() => {
+    applySidebarWidth(sidebarWidth);
+  }, [sidebarWidth]);
+
+  useEffect(() => {
+    function onViewportResize() {
+      setViewportWidth(window.innerWidth);
+    }
+    window.addEventListener("resize", onViewportResize);
+    return () => window.removeEventListener("resize", onViewportResize);
+  }, []);
+
+  useEffect(() => {
+    if (!resizing) return;
+
+    function onPointerMove(event: PointerEvent) {
+      const drag = dragRef.current;
+      if (!drag) return;
+      const next = clampSidebarWidthForViewport(
+        drag.startWidth + event.clientX - drag.startX,
+        viewportWidth,
+      );
+      sidebarWidthRef.current = next;
+      setPreferredSidebarWidth(next);
+    }
+
+    function finishResize() {
+      setResizing(false);
+      dragRef.current = null;
+      document.body.classList.remove("sidebar-resizing");
+      savePreferredSidebarWidth(sidebarWidthRef.current);
+    }
+
+    window.addEventListener("pointermove", onPointerMove);
+    window.addEventListener("pointerup", finishResize);
+    window.addEventListener("pointercancel", finishResize);
+    window.addEventListener("blur", finishResize);
+    return () => {
+      window.removeEventListener("pointermove", onPointerMove);
+      window.removeEventListener("pointerup", finishResize);
+      window.removeEventListener("pointercancel", finishResize);
+      window.removeEventListener("blur", finishResize);
+    };
+  }, [resizing, viewportWidth]);
 
   const closeMenu = useCallback(() => {
     setMenu(null);
@@ -118,6 +181,41 @@ export function Sidebar({
   function openProjectMenu(event: ReactMouseEvent<HTMLButtonElement>, project: Project) {
     event.stopPropagation();
     setMenu({ kind: "project", project, anchor: event.currentTarget });
+  }
+
+  function startResize(event: ReactPointerEvent<HTMLHRElement>) {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    dragRef.current = { startX: event.clientX, startWidth: sidebarWidth };
+    setResizing(true);
+    document.body.classList.add("sidebar-resizing");
+  }
+
+  function updateSidebarWidth(value: number) {
+    const next = clampSidebarWidthForViewport(value, viewportWidth);
+    setPreferredSidebarWidth(next);
+    savePreferredSidebarWidth(next);
+  }
+
+  function resetSidebarWidth() {
+    updateSidebarWidth(defaultSidebarWidth);
+  }
+
+  function onResizerKeyDown(event: ReactKeyboardEvent<HTMLHRElement>) {
+    const step = event.shiftKey ? 48 : 16;
+    if (event.key === "ArrowLeft") {
+      event.preventDefault();
+      updateSidebarWidth(sidebarWidth - step);
+    } else if (event.key === "ArrowRight") {
+      event.preventDefault();
+      updateSidebarWidth(sidebarWidth + step);
+    } else if (event.key === "Home") {
+      event.preventDefault();
+      updateSidebarWidth(minSidebarWidth);
+    } else if (event.key === "End") {
+      event.preventDefault();
+      updateSidebarWidth(maxSidebarWidthForViewport(viewportWidth));
+    }
   }
 
   function renderConversation(item: Conversation) {
@@ -172,7 +270,7 @@ export function Sidebar({
   }
 
   return (
-    <aside className="sidebar">
+    <aside className={`sidebar ${resizing ? "resizing" : ""}`}>
       <button className="new-chat" type="button" onClick={onNew}>
         <SquarePen size={17} />
         <span>新对话</span>
@@ -290,6 +388,21 @@ export function Sidebar({
           <span>设置</span>
         </button>
       </div>
+
+      <hr
+        className={`sidebar-resizer ${resizing ? "resizing" : ""}`}
+        aria-orientation="vertical"
+        aria-label="调整侧栏宽度"
+        aria-valuemin={minSidebarWidth}
+        aria-valuemax={maxSidebarWidthForViewport(viewportWidth)}
+        aria-valuenow={sidebarWidth}
+        aria-valuetext={`${sidebarWidth}px`}
+        title="拖动调整侧栏宽度；双击恢复默认"
+        tabIndex={0}
+        onPointerDown={startResize}
+        onDoubleClick={resetSidebarWidth}
+        onKeyDown={onResizerKeyDown}
+      />
 
       {menu?.kind === "conversation" && (
         <ConversationMenu

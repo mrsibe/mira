@@ -228,6 +228,10 @@ export const Mira = {
   listConversations(): Promise<Conversation[]> {
     return call("Mira.ListConversations");
   },
+  /** ListFonts returns font families installed on this computer. */
+  listFonts(): Promise<string[]> {
+    return call("Mira.ListFonts");
+  },
   /** ListProjects returns project categories in creation order. */
   listProjects(): Promise<Project[]> {
     return call("Mira.ListProjects");

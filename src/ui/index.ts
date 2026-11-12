@@ -6,5 +6,6 @@ export { Modal } from "./Modal";
 export { Notice } from "./Notice";
 export { PopupMenu } from "./PopupMenu";
 export { SegmentedControl } from "./SegmentedControl";
+export { Select, type SelectOption } from "./Select";
 export { Switch } from "./Switch";
 export { Toast } from "./Toast";

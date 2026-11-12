@@ -1,7 +1,7 @@
 /* ── Markdown ──────────────────────────────────────────────────────────── */
 
 .markdown {
-  font-size: var(--text-16);
+  font-size: var(--chat-font-size);
   line-height: 1.75;
   overflow-wrap: anywhere;
 }
@@ -30,16 +30,16 @@
 }
 
 .markdown h1 {
-  font-size: var(--text-24);
+  font-size: 1.5em;
 }
 
 .markdown h2 {
-  font-size: var(--text-18);
+  font-size: 1.125em;
 }
 
 .markdown h3,
 .markdown h4 {
-  font-size: var(--text-16);
+  font-size: 1em;
 }
 
 .markdown ul,
@@ -102,7 +102,7 @@
 .markdown code {
   padding: 2px 6px;
   font-family: var(--font-mono);
-  font-size: 0.875em;
+  font-size: var(--code-font-size);
   color: var(--text);
   background: var(--bg-subtle);
   border-radius: var(--radius-1);
@@ -114,7 +114,7 @@
 
 .markdown pre code {
   padding: 0;
-  font-size: inherit;
+  font-size: var(--code-font-size);
   background: transparent;
   border-radius: 0;
 }
@@ -124,7 +124,7 @@
   width: 100%;
   margin: var(--space-4) 0;
   overflow-x: auto;
-  font-size: var(--text-14);
+  font-size: 0.875em;
   border-collapse: collapse;
 }
 
@@ -183,7 +183,7 @@
   padding: var(--space-4);
   overflow-x: auto;
   font-family: var(--font-mono);
-  font-size: 13px;
+  font-size: var(--code-font-size);
   line-height: 1.65;
   tab-size: 2;
 }

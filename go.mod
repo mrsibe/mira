@@ -5,6 +5,7 @@ go 1.27.4
 require (
 	github.com/egoist/mygo v0.8.3
 	github.com/mrsibe/goat v0.2.0
+	golang.org/x/image v0.46.0
 	golang.org/x/net v0.62.0
 	golang.org/x/text v0.43.0
 )

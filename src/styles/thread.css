@@ -4,6 +4,7 @@
   position: relative;
   flex: 1;
   min-height: 0;
+  font-family: var(--font-chat);
 }
 
 .thread-scroll {
@@ -54,7 +55,7 @@
   max-width: 100%;
   padding: 10px var(--space-4);
   color: var(--text);
-  font-size: var(--text-16);
+  font-size: var(--chat-font-size);
   line-height: 1.6;
   background: var(--user-bubble);
   border-radius: var(--radius-4);
@@ -120,7 +121,7 @@
 
 .assistant-text {
   color: var(--text);
-  font-size: var(--text-16);
+  font-size: var(--chat-font-size);
   line-height: 1.75;
   overflow-wrap: anywhere;
 }
@@ -185,6 +186,8 @@
   min-height: 0;
   padding: clamp(var(--space-6), calc(38.2vh - 112px), 360px) var(--space-5) var(--space-6);
   overflow-y: auto;
+  font-family: var(--font-chat);
+  font-size: var(--chat-font-size);
 }
 
 .welcome-inner {
@@ -199,7 +202,7 @@
 .welcome h1 {
   margin: 0;
   color: var(--text);
-  font-size: var(--text-24);
+  font-size: 1.5em;
   font-weight: 500;
   line-height: 1.35;
   text-align: center;

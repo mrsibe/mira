@@ -1,5 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeAll, describe, expect, it, vi } from "vitest";
+import { defaultAppearance } from "../lib/appearance";
 import type { View } from "../mygo";
 import { SettingsDialog } from "./SettingsDialog";
 
@@ -47,12 +48,14 @@ describe("SettingsDialog", () => {
       <SettingsDialog
         settings={settings}
         theme="system"
+        appearance={defaultAppearance}
         initialSection="personalization"
         onClose={onClose}
         onSave={onSave}
         onClearKey={vi.fn()}
         onClearTavilyKey={vi.fn()}
         onThemeChange={vi.fn()}
+        onAppearanceChange={vi.fn()}
       />,
     );
 
@@ -71,12 +74,14 @@ describe("SettingsDialog", () => {
       <SettingsDialog
         settings={settings}
         theme="system"
+        appearance={defaultAppearance}
         initialSection="personalization"
         onClose={vi.fn()}
         onSave={onSave}
         onClearKey={vi.fn()}
         onClearTavilyKey={vi.fn()}
         onThemeChange={vi.fn()}
+        onAppearanceChange={vi.fn()}
       />,
     );
 
@@ -85,5 +90,30 @@ describe("SettingsDialog", () => {
 
     await waitFor(() => expect(onSave).toHaveBeenCalledOnce());
     expect(onSave.mock.calls[0]?.[0]).toMatchObject({ personality: "candid" });
+  });
+
+  it("applies appearance changes immediately and offers a done action", () => {
+    const onAppearanceChange = vi.fn();
+
+    render(
+      <SettingsDialog
+        settings={settings}
+        theme="system"
+        appearance={defaultAppearance}
+        initialSection="general"
+        onClose={vi.fn()}
+        onSave={vi.fn()}
+        onClearKey={vi.fn()}
+        onClearTavilyKey={vi.fn()}
+        onThemeChange={vi.fn()}
+        onAppearanceChange={onAppearanceChange}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "对话字号" }));
+    fireEvent.click(screen.getByRole("menuitemradio", { name: "18 px" }));
+
+    expect(onAppearanceChange).toHaveBeenCalledWith(expect.objectContaining({ chatSize: "large" }));
+    expect(screen.getByRole("button", { name: "完成" })).toBeTruthy();
   });
 });

@@ -9,6 +9,7 @@ import { Sidebar } from "./components/Sidebar";
 import { Thread } from "./components/Thread";
 import { Welcome } from "./components/Welcome";
 import { WindowTitlebar } from "./components/WindowTitlebar";
+import { type Appearance, applyAppearance, loadAppearance, saveAppearance } from "./lib/appearance";
 import { applyChatEvent, emptyRun } from "./lib/run";
 import type { ReasoningEffort, RunView, SettingsSection, ThemeMode } from "./lib/types";
 import {
@@ -63,6 +64,7 @@ export default function App() {
   const toastTimer = useRef<number | undefined>(undefined);
 
   const { theme, setTheme } = useTheme();
+  const { appearance, setAppearance } = useAppearance();
 
   useEffect(() => {
     localStorage.setItem(reasoningStorageKey, reasoningEffort);
@@ -512,12 +514,14 @@ export default function App() {
         <SettingsDialog
           settings={settings}
           theme={theme}
+          appearance={appearance}
           initialSection={settingsSection}
           onClose={() => setSettingsOpen(false)}
           onSave={saveSettings}
           onClearKey={clearKey}
           onClearTavilyKey={clearTavilyKey}
           onThemeChange={setTheme}
+          onAppearanceChange={setAppearance}
         />
       )}
 
@@ -612,5 +616,19 @@ function useTheme() {
   return {
     theme,
     setTheme,
+  };
+}
+
+function useAppearance() {
+  const [appearance, setAppearance] = useState<Appearance>(loadAppearance);
+
+  useEffect(() => {
+    applyAppearance(appearance);
+    saveAppearance(appearance);
+  }, [appearance]);
+
+  return {
+    appearance,
+    setAppearance,
   };
 }

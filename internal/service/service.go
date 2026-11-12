@@ -14,6 +14,7 @@ import (
 	"github.com/mrsibe/goat/ai"
 	"github.com/mrsibe/mira/internal/chat"
 	"github.com/mrsibe/mira/internal/config"
+	"github.com/mrsibe/mira/internal/fonts"
 	"github.com/mrsibe/mira/internal/memory"
 	"github.com/mrsibe/mira/internal/prompt"
 	"github.com/mrsibe/mira/internal/store"
@@ -111,6 +112,11 @@ func (s *Service) ListConversations() []store.Conversation {
 // ListProjects returns project categories in creation order.
 func (s *Service) ListProjects() []store.Project {
 	return s.store.ListProjects()
+}
+
+// ListFonts returns font families installed on this computer.
+func (s *Service) ListFonts() []string {
+	return fonts.List()
 }
 
 // CreateProject adds an empty project category.

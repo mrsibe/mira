@@ -13,6 +13,7 @@ type PopupMenuProps = {
   anchor: HTMLElement;
   label: string;
   className?: string;
+  container?: HTMLElement | null;
   onClose: () => void;
   children: ReactNode;
 };
@@ -25,7 +26,14 @@ type Position = {
 const edge = 8;
 const gap = 6;
 
-export function PopupMenu({ anchor, label, className, onClose, children }: PopupMenuProps) {
+export function PopupMenu({
+  anchor,
+  label,
+  className,
+  container,
+  onClose,
+  children,
+}: PopupMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null);
   const [position, setPosition] = useState<Position>({ left: 0, top: 0 });
   const [ready, setReady] = useState(false);
@@ -92,6 +100,8 @@ export function PopupMenu({ anchor, label, className, onClose, children }: Popup
     items[next]?.focus();
   }
 
+  const portalTarget = container ?? anchor.closest("dialog") ?? document.body;
+
   return createPortal(
     <div
       ref={menuRef}
@@ -103,7 +113,7 @@ export function PopupMenu({ anchor, label, className, onClose, children }: Popup
     >
       {children}
     </div>,
-    document.body,
+    portalTarget,
   );
 }
 
