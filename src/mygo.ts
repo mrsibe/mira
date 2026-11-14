@@ -7,6 +7,7 @@ import { call, type Channel } from "mygo-runtime";
 /** Bootstrap is the first call the page makes. */
 export interface Bootstrap {
   settings: View;
+  providers: ProviderInfo[];
   conversations: Conversation[];
   projects: Project[];
   activeConversationId?: string;
@@ -48,16 +49,10 @@ export interface ConversationDetail {
 }
 
 /**
- * Input is the frontend-safe update payload. An empty APIKey keeps the
- * existing key. A nil UserName keeps the existing display name. A nil
- * WebSearchEnabled keeps the existing value. An empty TavilyAPIKey keeps the
- * existing Tavily key. A nil IntelligentUIEnabled keeps the existing value.
+ * Input is the frontend-safe preference update payload. Nil pointers preserve
+ * the existing value. Model connection settings use ModelInput instead.
  */
 export interface Input {
-  baseUrl: string;
-  apiKey: string;
-  model: string;
-  protocol: string;
   userName?: string;
   webSearchEnabled?: boolean;
   searchProvider: string;
@@ -85,11 +80,62 @@ export interface MemoryView {
   lastError?: string;
 }
 
+/**
+ * ModelInput creates or updates a model. An empty APIKey preserves the
+ * existing key when ID matches a saved model.
+ */
+export interface ModelInput {
+  id?: string;
+  name: string;
+  provider: string;
+  baseUrl: string;
+  model: string;
+  protocol: string;
+  apiKey: string;
+}
+
+/** ModelView is the frontend-safe model entry. */
+export interface ModelView {
+  id: string;
+  name: string;
+  provider: string;
+  providerLabel: string;
+  baseUrl: string;
+  model: string;
+  protocol: string;
+  configured: boolean;
+  hasApiKey: boolean;
+  apiKeyStorage: string;
+}
+
 /** Project groups conversations in the sidebar. */
 export interface Project {
   id: string;
   name: string;
   createdAt: string;
+}
+
+/** ProtocolOption is one selectable API protocol. */
+export interface ProtocolOption {
+  value: string;
+  label: string;
+}
+
+/** ProviderInfo describes the defaults and requirements of one provider. */
+export interface ProviderInfo {
+  id: string;
+  label: string;
+  description: string;
+  defaultBaseUrl: string;
+  baseUrlHint: string;
+  defaultModel: string;
+  modelLabel: string;
+  defaultProtocol: string;
+  protocols: ProtocolOption[];
+  requiresBaseUrl: boolean;
+  requiresApiKey: boolean;
+  localAuthOptional: boolean;
+  apiKeyEnv: string;
 }
 
 /** SaveInput updates the editable automatic summary. */
@@ -166,14 +212,11 @@ export interface UsageView {
   totalTokens: number;
 }
 
-/** View is returned to the frontend. The API key is deliberately omitted. */
+/** View is returned to the frontend. API keys are deliberately omitted. */
 export interface View {
-  baseUrl: string;
-  model: string;
-  protocol: string;
+  models: ModelView[];
+  activeModelId: string;
   userName: string;
-  hasApiKey: boolean;
-  apiKeyStorage: string;
   configured: boolean;
   configPath: string;
   webSearchEnabled: boolean;
@@ -198,17 +241,25 @@ export interface View {
 
 /** Service is bound to the page as `Mira`. */
 export const Mira = {
+  /** ActivateModel switches the current model. */
+  activateModel(id: string): Promise<View> {
+    return call("Mira.ActivateModel", id);
+  },
+  /** AddModel creates a model and makes it active. */
+  addModel(input: ModelInput): Promise<View> {
+    return call("Mira.AddModel", input);
+  },
   /** Bootstrap returns settings, conversation metadata and the app version. */
   bootstrap(): Promise<Bootstrap> {
     return call("Mira.Bootstrap");
   },
-  /** ClearAPIKey removes the saved key. */
-  clearAPIKey(): Promise<View> {
-    return call("Mira.ClearAPIKey");
-  },
   /** ClearMemory removes the automatic memory summary. */
   clearMemory(): Promise<MemoryView> {
     return call("Mira.ClearMemory");
+  },
+  /** ClearModelAPIKey removes one model's saved key. */
+  clearModelAPIKey(id: string): Promise<View> {
+    return call("Mira.ClearModelAPIKey", id);
   },
   /** ClearTavilyAPIKey removes the saved search key. */
   clearTavilyAPIKey(): Promise<View> {
@@ -225,6 +276,10 @@ export const Mira = {
   /** DeleteConversation removes a thread. It cannot delete the running thread. */
   deleteConversation(id: string): Promise<void> {
     return call("Mira.DeleteConversation", id);
+  },
+  /** DeleteModel removes one model. */
+  deleteModel(id: string): Promise<View> {
+    return call("Mira.DeleteModel", id);
   },
   /** DeleteProject removes a project and all conversations in it. */
   deleteProject(id: string): Promise<void> {
@@ -303,6 +358,14 @@ export const Mira = {
   /** Stop cancels the active run for a conversation. */
   stop(conversationID: string): Promise<void> {
     return call("Mira.Stop", conversationID);
+  },
+  /** TestModel verifies a draft model without persisting it. */
+  testModel(input: ModelInput): Promise<void> {
+    return call("Mira.TestModel", input);
+  },
+  /** UpdateModel updates one model's connection fields. */
+  updateModel(input: ModelInput): Promise<View> {
+    return call("Mira.UpdateModel", input);
   },
 } as const;
 

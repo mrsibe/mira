@@ -1,6 +1,6 @@
 import { Eye, EyeOff, KeyRound } from "lucide-react";
 import type { View } from "../../mygo";
-import { Button, Field, IconButton, SegmentedControl, Switch } from "../../ui";
+import { Button, Field, IconButton, Input, SegmentedControl, Switch } from "../../ui";
 import { KeyStorageStatus } from "./KeyStorageStatus";
 import type { SetDraftField, SettingsDraft } from "./types";
 
@@ -54,7 +54,7 @@ export function SearchSettings({
                 {(id) => (
                   <div className="key-input">
                     <KeyRound size={15} />
-                    <input
+                    <Input
                       id={id}
                       type={draft.showTavilyKey ? "text" : "password"}
                       value={draft.tavilyApiKey}

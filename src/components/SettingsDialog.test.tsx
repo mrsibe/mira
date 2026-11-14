@@ -14,12 +14,22 @@ beforeAll(() => {
 });
 
 const settings: View = {
-  baseUrl: "https://api.openai.com/v1",
-  model: "gpt-5",
-  protocol: "responses",
+  models: [
+    {
+      id: "model-1",
+      name: "GPT-5",
+      provider: "openai",
+      providerLabel: "OpenAI",
+      baseUrl: "https://api.openai.com/v1",
+      model: "gpt-5",
+      protocol: "responses",
+      configured: true,
+      hasApiKey: true,
+      apiKeyStorage: "keychain",
+    },
+  ],
+  activeModelId: "model-1",
   userName: "",
-  hasApiKey: true,
-  apiKeyStorage: "keychain",
   configured: true,
   configPath: "/tmp/mira/config.json",
   webSearchEnabled: true,
@@ -52,7 +62,10 @@ describe("SettingsDialog", () => {
         initialSection="personalization"
         onClose={onClose}
         onSave={onSave}
-        onClearKey={vi.fn()}
+        onActivateModel={vi.fn()}
+        onAddModel={vi.fn()}
+        onEditModel={vi.fn()}
+        onDeleteModel={vi.fn()}
         onClearTavilyKey={vi.fn()}
         onThemeChange={vi.fn()}
         onAppearanceChange={vi.fn()}
@@ -78,7 +91,10 @@ describe("SettingsDialog", () => {
         initialSection="personalization"
         onClose={vi.fn()}
         onSave={onSave}
-        onClearKey={vi.fn()}
+        onActivateModel={vi.fn()}
+        onAddModel={vi.fn()}
+        onEditModel={vi.fn()}
+        onDeleteModel={vi.fn()}
         onClearTavilyKey={vi.fn()}
         onThemeChange={vi.fn()}
         onAppearanceChange={vi.fn()}
@@ -103,7 +119,10 @@ describe("SettingsDialog", () => {
         initialSection="general"
         onClose={vi.fn()}
         onSave={vi.fn()}
-        onClearKey={vi.fn()}
+        onActivateModel={vi.fn()}
+        onAddModel={vi.fn()}
+        onEditModel={vi.fn()}
+        onDeleteModel={vi.fn()}
         onClearTavilyKey={vi.fn()}
         onThemeChange={vi.fn()}
         onAppearanceChange={onAppearanceChange}

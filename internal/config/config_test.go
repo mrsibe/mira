@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -52,7 +53,7 @@ func newTestManager(t *testing.T, dir string) *Manager {
 	return manager
 }
 
-func TestSaveReloadAndKeyLifecycle(t *testing.T) {
+func TestModelLifecycleAndPerModelSecrets(t *testing.T) {
 	clearConfigEnv(t)
 	dir := t.TempDir()
 	secrets := newFakeSecretStore()
@@ -62,40 +63,42 @@ func TestSaveReloadAndKeyLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	initial := manager.View()
-	if initial.BaseURL != DefaultBaseURL || initial.Model != DefaultModel {
-		t.Fatalf("unexpected defaults: %+v", initial)
-	}
-	if initial.Configured || initial.HasAPIKey {
-		t.Fatalf("new manager should be unconfigured: %+v", initial)
+	if len(initial.Models) != 0 || initial.Configured {
+		t.Fatalf("new manager should have no models: %+v", initial)
 	}
 
-	view, err := manager.Save(Input{
+	view, err := manager.AddModel(ModelInput{
+		Name:     "主模型",
+		Provider: ProviderOpenAI,
 		BaseURL:  "https://api.example.com/v1/",
-		APIKey:   "sk-test",
 		Model:    "test-model",
 		Protocol: ProtocolCompletions,
-		UserName: stringPointer("小明"),
+		APIKey:   "sk-test",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if view.BaseURL != "https://api.example.com/v1" {
-		t.Fatalf("base URL was not normalized: %q", view.BaseURL)
+	if len(view.Models) != 1 || view.ActiveModelID != view.Models[0].ID {
+		t.Fatalf("model was not activated: %+v", view)
 	}
-	if !view.HasAPIKey || !view.Configured {
-		t.Fatalf("saved settings should be configured: %+v", view)
+	first := view.Models[0]
+	if first.BaseURL != "https://api.example.com/v1" || first.Name != "主模型" ||
+		first.ProviderLabel != "OpenAI" || !first.Configured ||
+		first.APIKeyStorage != KeyStorageKeychain {
+		t.Fatalf("model view = %+v", first)
 	}
-	if view.APIKeyStorage != KeyStorageKeychain || !view.KeychainAvailable {
-		t.Fatalf("key storage = %+v", view)
+	if !view.Configured || !view.KeychainAvailable {
+		t.Fatalf("view should be configured: %+v", view)
 	}
-	if secrets.values[ModelSecretKey] != "sk-test" {
-		t.Fatal("API key was not stored in the secret store")
+	if secrets.values[modelSecretKey(first.ID)] != "sk-test" {
+		t.Fatal("API key was not stored for the model")
 	}
 	if view.ConfigPath != filepath.Join(dir, "config.json") {
 		t.Fatalf("config path = %q", view.ConfigPath)
 	}
-	if view.UserName != "小明" {
-		t.Fatalf("user name = %q", view.UserName)
+	if settings := manager.Settings(); settings.APIKey != "sk-test" ||
+		settings.Model != "test-model" || settings.Protocol != ProtocolCompletions {
+		t.Fatalf("active settings = %+v", settings)
 	}
 
 	info, err := os.Stat(view.ConfigPath)
@@ -112,65 +115,156 @@ func TestSaveReloadAndKeyLifecycle(t *testing.T) {
 	if strings.Contains(string(data), "sk-test") || strings.Contains(string(data), "apiKey") {
 		t.Fatalf("config file contains an API key: %s", data)
 	}
+	if !strings.Contains(string(data), `"schemaVersion": 2`) {
+		t.Fatalf("config file is not schema v2: %s", data)
+	}
 
 	reloaded, err := NewManager(dir, secrets)
 	if err != nil {
 		t.Fatal(err)
 	}
-	settings := reloaded.Settings()
-	if settings.APIKey != "sk-test" || settings.Model != "test-model" ||
-		settings.Protocol != ProtocolCompletions || settings.UserName != "小明" {
-		t.Fatalf("reloaded settings = %+v", settings)
+	if got := reloaded.View(); len(got.Models) != 1 || got.ActiveModelID != first.ID ||
+		reloaded.Settings().APIKey != "sk-test" {
+		t.Fatalf("reloaded view = %+v", got)
 	}
 
-	kept, err := reloaded.Save(Input{
-		BaseURL:  "https://api.example.com/v1",
-		Model:    "test-model",
+	google, err := manager.AddModel(ModelInput{
+		Provider: ProviderGoogle,
+		APIKey:   "google-key",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(google.Models) != 2 || google.ActiveModelID != google.Models[1].ID {
+		t.Fatalf("second model was not activated: %+v", google)
+	}
+	second := google.Models[1]
+	if second.Model != "gemini-3-flash" || second.Protocol != ProtocolGoogle ||
+		secrets.values[modelSecretKey(second.ID)] != "google-key" {
+		t.Fatalf("google model = %+v", second)
+	}
+
+	activated, err := manager.ActivateModel(first.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if activated.ActiveModelID != first.ID || manager.Settings().APIKey != "sk-test" {
+		t.Fatalf("activate model = %+v", activated)
+	}
+
+	updated, err := manager.UpdateModel(ModelInput{
+		ID:       first.ID,
+		Name:     "主模型",
+		Provider: ProviderOpenAI,
+		BaseURL:  first.BaseURL,
+		Model:    "test-model-2",
 		Protocol: ProtocolCompletions,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !kept.HasAPIKey {
-		t.Fatal("an empty API key input should preserve the saved key")
-	}
-	if kept.UserName != "小明" {
-		t.Fatal("omitting the user name should preserve it")
+	if updated.Models[0].Model != "test-model-2" || !updated.Models[0].HasAPIKey {
+		t.Fatalf("empty key did not preserve the saved key: %+v", updated.Models[0])
 	}
 
-	cleared, err := reloaded.ClearAPIKey()
+	if _, err := manager.UpdateModel(ModelInput{
+		ID:       first.ID,
+		Provider: ProviderOpenAI,
+		BaseURL:  first.BaseURL,
+		Model:    "test-model-2",
+		Protocol: ProtocolCompletions,
+		APIKey:   "sk-new",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if secrets.values[modelSecretKey(first.ID)] != "sk-new" {
+		t.Fatal("updated key was not stored")
+	}
+
+	cleared, err := manager.ClearModelAPIKey(first.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cleared.HasAPIKey || cleared.Configured {
-		t.Fatalf("cleared key should make the remote provider unconfigured: %+v", cleared)
+	if cleared.Models[0].HasAPIKey || cleared.Configured {
+		t.Fatalf("cleared key should make the active model unconfigured: %+v", cleared)
+	}
+	if _, found := secrets.values[modelSecretKey(first.ID)]; found {
+		t.Fatal("cleared key remains in the secret store")
+	}
+	if secrets.values[modelSecretKey(second.ID)] != "google-key" {
+		t.Fatal("clearing one key changed another model")
 	}
 
-	afterClear, err := NewManager(dir, secrets)
+	deleted, err := manager.DeleteModel(second.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if afterClear.Settings().APIKey != "" {
-		t.Fatal("cleared API key was persisted")
+	if len(deleted.Models) != 1 || deleted.Models[0].ID != first.ID {
+		t.Fatalf("delete model = %+v", deleted)
+	}
+	empty, err := manager.DeleteModel(first.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(empty.Models) != 0 || empty.Configured || empty.ActiveModelID != "" {
+		t.Fatalf("deleting the last model = %+v", empty)
 	}
 }
 
-func TestUserNameCanBeCleared(t *testing.T) {
+func TestLegacyConfigMigratesAndWritesV2(t *testing.T) {
 	clearConfigEnv(t)
-	manager := newTestManager(t, t.TempDir())
-
-	if _, err := manager.Save(Input{UserName: stringPointer("小明")}); err != nil {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.json")
+	data := []byte(`{"baseUrl":"https://api.example.com/v1","model":"legacy-model","protocol":"completions","userName":"小明","webSearchEnabled":false}`)
+	if err := os.WriteFile(path, data, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if view := manager.View(); view.UserName != "小明" {
-		t.Fatalf("user name = %q", view.UserName)
-	}
+	secrets := newFakeSecretStore()
+	secrets.values[ModelSecretKey] = "legacy-key"
 
-	if _, err := manager.Save(Input{UserName: stringPointer("")}); err != nil {
+	manager, err := NewManager(dir, secrets)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if view := manager.View(); view.UserName != "" {
-		t.Fatalf("cleared user name = %q", view.UserName)
+	view := manager.View()
+	if len(view.Models) != 1 || view.Models[0].ID != "default" ||
+		view.Models[0].Provider != ProviderOpenAI ||
+		view.Models[0].Model != "legacy-model" ||
+		!view.Models[0].Configured || view.Models[0].APIKeyStorage != KeyStorageKeychain {
+		t.Fatalf("migrated model = %+v", view)
+	}
+	if view.UserName != "小明" || view.WebSearchEnabled {
+		t.Fatalf("legacy preferences = %+v", view)
+	}
+	if settings := manager.Settings(); settings.APIKey != "legacy-key" ||
+		settings.Model != "legacy-model" || settings.Protocol != ProtocolCompletions {
+		t.Fatalf("migrated settings = %+v", settings)
+	}
+
+	if _, err := manager.Save(Input{}); err != nil {
+		t.Fatal(err)
+	}
+	written, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(written), `"schemaVersion": 2`) ||
+		!strings.Contains(string(written), `"provider": "openai"`) {
+		t.Fatalf("migrated config = %s", written)
+	}
+	var legacy legacyModelFields
+	if err := json.Unmarshal(written, &legacy); err != nil {
+		t.Fatal(err)
+	}
+	if legacy.BaseURL != "" || legacy.Model != "" || legacy.Protocol != "" {
+		t.Fatalf("legacy top-level fields were written: %s", written)
+	}
+	reloaded, err := NewManager(dir, secrets)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := reloaded.View(); len(got.Models) != 1 || got.Models[0].Model != "legacy-model" {
+		t.Fatalf("reloaded migrated config = %+v", got)
 	}
 }
 
@@ -182,268 +276,279 @@ func TestEnvironmentFallbackAndLocalProvider(t *testing.T) {
 
 	manager := newTestManager(t, t.TempDir())
 	view := manager.View()
-	if view.BaseURL != "http://localhost:11434/v1" || view.Model != "local-model" {
+	if len(view.Models) != 1 {
+		t.Fatalf("environment model = %+v", view)
+	}
+	model := view.Models[0]
+	if model.Provider != ProviderOpenAI || model.BaseURL != "http://localhost:11434/v1" ||
+		model.Model != "local-model" || model.Protocol != ProtocolCompletions ||
+		!model.Configured || !view.Configured {
 		t.Fatalf("environment fallback = %+v", view)
 	}
-	if view.Protocol != ProtocolCompletions {
-		t.Fatalf("protocol = %q", view.Protocol)
+}
+
+func TestEnvironmentKeyOverridesAndCannotBeCleared(t *testing.T) {
+	clearConfigEnv(t)
+	t.Setenv("OPENAI_API_KEY", "env-key")
+	manager := newTestManager(t, t.TempDir())
+	view := manager.View()
+	if len(view.Models) != 1 || view.Models[0].APIKeyStorage != KeyStorageEnvironment ||
+		!view.Configured {
+		t.Fatalf("environment source = %+v", view)
 	}
-	if !view.Configured {
-		t.Fatal("a local provider should be configured without an API key")
+	if _, err := manager.ClearModelAPIKey(view.Models[0].ID); err == nil ||
+		!strings.Contains(err.Error(), "OPENAI_API_KEY") {
+		t.Fatalf("environment key clear error = %v", err)
+	}
+	if !manager.View().Models[0].HasAPIKey {
+		t.Fatal("failed environment clear removed the key")
 	}
 }
 
-func TestInvalidSettingsAreRejected(t *testing.T) {
+func TestProviderDefaultsAndProtocols(t *testing.T) {
+	clearConfigEnv(t)
+	tests := []struct {
+		name         string
+		input        ModelInput
+		wantBase     string
+		wantModel    string
+		wantProtocol string
+	}{
+		{
+			name:         "openai",
+			input:        ModelInput{Provider: ProviderOpenAI, APIKey: "k"},
+			wantBase:     DefaultBaseURL,
+			wantModel:    DefaultModel,
+			wantProtocol: ProtocolResponses,
+		},
+		{
+			name: "azure",
+			input: ModelInput{
+				Provider: ProviderAzure,
+				BaseURL:  "https://example.openai.azure.com/openai/v1",
+				Model:    "deployment",
+				APIKey:   "k",
+			},
+			wantBase:     "https://example.openai.azure.com/openai/v1",
+			wantModel:    "deployment",
+			wantProtocol: ProtocolResponses,
+		},
+		{
+			name:         "google",
+			input:        ModelInput{Provider: ProviderGoogle, APIKey: "k"},
+			wantModel:    "gemini-3-flash",
+			wantProtocol: ProtocolGoogle,
+		},
+		{
+			name:         "anthropic",
+			input:        ModelInput{Provider: ProviderAnthropic, APIKey: "k"},
+			wantBase:     "https://api.anthropic.com",
+			wantModel:    "claude-sonnet-5-5",
+			wantProtocol: ProtocolAnthropic,
+		},
+		{
+			name:         "deepseek",
+			input:        ModelInput{Provider: ProviderDeepSeek, APIKey: "k"},
+			wantBase:     "https://api.deepseek.com",
+			wantModel:    "deepseek-reasoner",
+			wantProtocol: ProtocolCompletions,
+		},
+		{
+			name: "openrouter messages",
+			input: ModelInput{
+				Provider: ProviderOpenRouter,
+				Protocol: ProtocolMessages,
+				APIKey:   "k",
+			},
+			wantBase:     "https://openrouter.ai/api/v1",
+			wantModel:    "anthropic/claude-sonnet-4",
+			wantProtocol: ProtocolMessages,
+		},
+		{
+			name:         "xai",
+			input:        ModelInput{Provider: ProviderXAI, APIKey: "k"},
+			wantBase:     "https://api.x.ai/v1",
+			wantModel:    "grok-4",
+			wantProtocol: ProtocolResponses,
+		},
+		{
+			name: "custom",
+			input: ModelInput{
+				Provider: ProviderCustom,
+				BaseURL:  "https://example.com/v1",
+				Model:    "custom-model",
+				APIKey:   "k",
+			},
+			wantBase:     "https://example.com/v1",
+			wantModel:    "custom-model",
+			wantProtocol: ProtocolCompletions,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			manager := newTestManager(t, t.TempDir())
+			view, err := manager.AddModel(test.input)
+			if err != nil {
+				t.Fatal(err)
+			}
+			model := view.Models[0]
+			if model.BaseURL != test.wantBase || model.Model != test.wantModel ||
+				model.Protocol != test.wantProtocol {
+				t.Fatalf("model = %+v", model)
+			}
+		})
+	}
+}
+
+func TestInvalidModelsAreRejected(t *testing.T) {
 	clearConfigEnv(t)
 	manager := newTestManager(t, t.TempDir())
-
-	for _, baseURL := range []string{"not-a-url", "ftp://example.com/v1", "://missing-scheme"} {
-		if _, err := manager.Save(Input{BaseURL: baseURL}); err == nil {
-			t.Fatalf("expected %q to be rejected", baseURL)
+	tests := []ModelInput{
+		{Provider: "unknown", Model: "x", APIKey: "k"},
+		{Provider: ProviderAzure, Model: "deployment", APIKey: "k"},
+		{Provider: ProviderCustom, Model: "custom"},
+		{Provider: ProviderCustom, BaseURL: "ftp://example.com", Model: "custom"},
+		{Provider: ProviderCustom, BaseURL: "https://example.com", Model: "custom"},
+	}
+	for _, input := range tests {
+		if _, err := manager.AddModel(input); err == nil {
+			t.Fatalf("expected %+v to be rejected", input)
 		}
 	}
-
-	if len(manager.Settings().BaseURL) == 0 {
-		t.Fatal("failed saves must not clear the current settings")
+	if len(manager.View().Models) != 0 {
+		t.Fatal("failed adds changed the model list")
 	}
 }
 
-func TestLoadErrorKeepsDefaults(t *testing.T) {
+func TestResolveModelSettingsReusesStoredKey(t *testing.T) {
 	clearConfigEnv(t)
-	dir := t.TempDir()
-	path := filepath.Join(dir, "config.json")
-	if err := os.WriteFile(path, []byte("{"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-
-	manager := newTestManager(t, dir)
-	if manager.LoadError() == nil {
-		t.Fatal("expected a load error for malformed JSON")
-	}
-	if manager.View().Model != DefaultModel {
-		t.Fatalf("defaults were not applied: %+v", manager.View())
-	}
-
-	if _, err := manager.Save(Input{Model: "recovered"}); err != nil {
-		t.Fatal(err)
-	}
-	if manager.LoadError() != nil {
-		t.Fatal("a successful save should clear the load error")
-	}
-	if !strings.HasSuffix(manager.View().ConfigPath, "config.json") {
-		t.Fatalf("config path = %q", manager.View().ConfigPath)
-	}
-}
-
-func TestSearchSettingsDefaultsAndLifecycle(t *testing.T) {
-	clearConfigEnv(t)
-	dir := t.TempDir()
-	secrets := newFakeSecretStore()
-	manager, err := NewManager(dir, secrets)
+	manager := newTestManager(t, t.TempDir())
+	view, err := manager.AddModel(ModelInput{
+		Provider: ProviderOpenAI,
+		BaseURL:  "https://api.example.com/v1",
+		Model:    "model",
+		Protocol: ProtocolCompletions,
+		APIKey:   "stored-key",
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
+	model := view.Models[0]
+	settings, err := manager.ResolveModelSettings(ModelInput{
+		ID:       model.ID,
+		Provider: model.Provider,
+		BaseURL:  model.BaseURL,
+		Model:    model.Model,
+		Protocol: model.Protocol,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if settings.APIKey != "stored-key" {
+		t.Fatalf("stored key was not reused: %+v", settings)
+	}
+	settings, err = manager.ResolveModelSettings(ModelInput{
+		ID:       model.ID,
+		Provider: model.Provider,
+		BaseURL:  model.BaseURL,
+		Model:    model.Model,
+		Protocol: model.Protocol,
+		APIKey:   "draft-key",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if settings.APIKey != "draft-key" {
+		t.Fatalf("draft key was not used: %+v", settings)
+	}
+}
+
+func TestGlobalPreferenceLifecycle(t *testing.T) {
+	clearConfigEnv(t)
+	dir := t.TempDir()
+	manager := newTestManager(t, dir)
+
+	if _, err := manager.Save(Input{UserName: stringPointer("小明")}); err != nil {
+		t.Fatal(err)
+	}
+	if view := manager.View(); view.UserName != "小明" {
+		t.Fatalf("user name = %q", view.UserName)
+	}
+	if _, err := manager.Save(Input{UserName: stringPointer("")}); err != nil {
+		t.Fatal(err)
+	}
+	if view := manager.View(); view.UserName != "" {
+		t.Fatalf("cleared user name = %q", view.UserName)
+	}
 
 	initial := manager.View()
-	if !initial.WebSearchEnabled || initial.SearchProvider != SearchProviderDuckDuckGo {
-		t.Fatalf("search defaults = %+v", initial)
-	}
-	if initial.HasTavilyAPIKey {
-		t.Fatal("new settings should not have a Tavily key")
+	if !initial.WebSearchEnabled || initial.SearchProvider != SearchProviderDuckDuckGo ||
+		initial.ResponseStyle != ResponseStyleConcise ||
+		initial.Personality != PersonalityFriendly ||
+		initial.Warmth != WarmthBalanced ||
+		initial.Enthusiasm != EnthusiasmBalanced ||
+		initial.Emoji != EmojiNone ||
+		!initial.MemoryEnabled || !initial.MemorySummaryEnabled ||
+		!initial.MemorySearchEnabled || !initial.IntelligentUIEnabled {
+		t.Fatalf("defaults = %+v", initial)
 	}
 
 	if _, err := manager.Save(Input{SearchProvider: SearchProviderTavily}); err == nil {
 		t.Fatal("Tavily without a key should be rejected")
 	}
-	if manager.View().SearchProvider != SearchProviderDuckDuckGo {
-		t.Fatal("a failed save changed the search provider")
-	}
-
 	disabled := false
 	saved, err := manager.Save(Input{
-		SearchProvider:   SearchProviderTavily,
-		TavilyAPIKey:     "test-search-key",
-		WebSearchEnabled: &disabled,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if saved.WebSearchEnabled || !saved.HasTavilyAPIKey ||
-		saved.SearchProvider != SearchProviderTavily {
-		t.Fatalf("saved search settings = %+v", saved)
-	}
-	if saved.TavilyAPIKeyStorage != KeyStorageKeychain ||
-		secrets.values[TavilySecretKey] != "test-search-key" {
-		t.Fatalf("Tavily key was not stored in the keychain: %+v", saved)
-	}
-	data, err := os.ReadFile(filepath.Join(dir, "config.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if strings.Contains(string(data), "test-search-key") || strings.Contains(string(data), "tavilyApiKey") {
-		t.Fatalf("config file contains the Tavily key: %s", data)
-	}
-
-	kept, err := manager.Save(Input{SearchProvider: SearchProviderTavily})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !kept.HasTavilyAPIKey || kept.WebSearchEnabled {
-		t.Fatalf("empty key or nil toggle changed settings: %+v", kept)
-	}
-
-	reloaded, err := NewManager(dir, secrets)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if settings := reloaded.Settings(); settings.TavilyAPIKey != "test-search-key" ||
-		settings.WebSearchEnabled || settings.SearchProvider != SearchProviderTavily {
-		t.Fatalf("reloaded search settings = %+v", settings)
-	}
-
-	cleared, err := reloaded.ClearTavilyAPIKey()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if cleared.HasTavilyAPIKey || cleared.SearchProvider != SearchProviderDuckDuckGo {
-		t.Fatalf("clear Tavily key = %+v", cleared)
-	}
-	if reloaded.Settings().TavilyAPIKey != "" {
-		t.Fatal("cleared Tavily key was persisted")
-	}
-	if _, found := secrets.values[TavilySecretKey]; found {
-		t.Fatal("cleared Tavily key remains in the secret store")
-	}
-}
-
-func TestLegacyConfigDefaultsWebSearchOn(t *testing.T) {
-	clearConfigEnv(t)
-	dir := t.TempDir()
-	path := filepath.Join(dir, "config.json")
-	data := []byte(`{"baseUrl":"https://api.example.com/v1","model":"test","protocol":"responses"}`)
-	if err := os.WriteFile(path, data, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	manager := newTestManager(t, dir)
-	view := manager.View()
-	if !view.WebSearchEnabled || view.SearchProvider != SearchProviderDuckDuckGo {
-		t.Fatalf("legacy config search defaults = %+v", view)
-	}
-	if view.Personality != PersonalityFriendly {
-		t.Fatalf("legacy config personality default = %+v", view)
-	}
-	if !view.IntelligentUIEnabled {
-		t.Fatalf("legacy config intelligent UI default = %+v", view)
-	}
-
-	falseValue := false
-	if _, err := manager.Save(Input{WebSearchEnabled: &falseValue}); err != nil {
-		t.Fatal(err)
-	}
-	reloaded := newTestManager(t, dir)
-	if reloaded.View().WebSearchEnabled {
-		t.Fatal("explicitly disabled web search was not persisted")
-	}
-}
-
-func TestIntelligentUIIsOnByDefaultAndCanBeDisabled(t *testing.T) {
-	clearConfigEnv(t)
-	dir := t.TempDir()
-	manager := newTestManager(t, dir)
-
-	if !manager.View().IntelligentUIEnabled {
-		t.Fatal("intelligent UI should be enabled by default")
-	}
-
-	disabled := false
-	saved, err := manager.Save(Input{IntelligentUIEnabled: &disabled})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if saved.IntelligentUIEnabled {
-		t.Fatal("intelligent UI was not disabled")
-	}
-
-	reloaded := newTestManager(t, dir)
-	if reloaded.View().IntelligentUIEnabled {
-		t.Fatal("explicitly disabled intelligent UI was not persisted")
-	}
-
-	kept, err := reloaded.Save(Input{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if kept.IntelligentUIEnabled {
-		t.Fatal("omitting the setting should preserve the disabled value")
-	}
-}
-
-func TestInvalidSearchProviderIsRejected(t *testing.T) {
-	clearConfigEnv(t)
-	manager := newTestManager(t, t.TempDir())
-	if _, err := manager.Save(Input{SearchProvider: "other"}); err == nil {
-		t.Fatal("expected unsupported provider to be rejected")
-	}
-}
-
-func TestPersonalizationAndMemoryDefaultsAndLifecycle(t *testing.T) {
-	clearConfigEnv(t)
-	dir := t.TempDir()
-	manager := newTestManager(t, dir)
-
-	initial := manager.View()
-	if initial.ResponseStyle != ResponseStyleConcise ||
-		initial.Personality != PersonalityFriendly ||
-		initial.Warmth != WarmthBalanced ||
-		initial.Enthusiasm != EnthusiasmBalanced ||
-		initial.Emoji != EmojiNone {
-		t.Fatalf("personalization defaults = %+v", initial)
-	}
-	if !initial.MemoryEnabled || !initial.MemorySummaryEnabled || !initial.MemorySearchEnabled {
-		t.Fatalf("memory defaults = %+v", initial)
-	}
-
-	summaryDisabled := false
-	saved, err := manager.Save(Input{
+		SearchProvider:       SearchProviderTavily,
+		TavilyAPIKey:         "test-search-key",
+		WebSearchEnabled:     &disabled,
 		ResponseStyle:        ResponseStyleDetailed,
 		Personality:          PersonalityCandid,
 		Warmth:               WarmthFriendly,
 		Enthusiasm:           EnthusiasmCalm,
 		Emoji:                EmojiSparing,
 		CustomInstructions:   stringPointer("  回答时先给结论。  "),
-		MemorySummaryEnabled: &summaryDisabled,
+		MemorySummaryEnabled: &disabled,
+		IntelligentUIEnabled: &disabled,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if saved.ResponseStyle != ResponseStyleDetailed ||
+	if saved.WebSearchEnabled || !saved.HasTavilyAPIKey ||
+		saved.SearchProvider != SearchProviderTavily ||
+		saved.ResponseStyle != ResponseStyleDetailed ||
 		saved.Personality != PersonalityCandid ||
 		saved.Warmth != WarmthFriendly ||
 		saved.Enthusiasm != EnthusiasmCalm ||
 		saved.Emoji != EmojiSparing ||
 		saved.CustomInstructions != "回答时先给结论。" ||
-		saved.MemorySummaryEnabled {
-		t.Fatalf("saved personalization = %+v", saved)
+		saved.MemorySummaryEnabled || saved.IntelligentUIEnabled {
+		t.Fatalf("saved preferences = %+v", saved)
+	}
+	if saved.TavilyAPIKeyStorage != KeyStorageKeychain {
+		t.Fatalf("Tavily key storage = %+v", saved)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "config.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), "test-search-key") ||
+		strings.Contains(string(data), "tavilyApiKey") {
+		t.Fatalf("config file contains the Tavily key: %s", data)
 	}
 
-	reloaded := newTestManager(t, dir)
-	if reloaded.View().ResponseStyle != ResponseStyleDetailed ||
-		reloaded.View().Personality != PersonalityCandid ||
-		reloaded.View().MemorySummaryEnabled {
-		t.Fatalf("reloaded personalization = %+v", reloaded.View())
+	reloaded, err := NewManager(dir, newFakeSecretStore())
+	if err != nil {
+		t.Fatal(err)
 	}
-
-	if _, err := manager.Save(Input{ResponseStyle: "verbose"}); err == nil {
-		t.Fatal("unsupported response style should be rejected")
+	if reloaded.View().SearchProvider != SearchProviderDuckDuckGo ||
+		reloaded.View().HasTavilyAPIKey {
+		t.Fatalf("lost Tavily key did not fall back to DuckDuckGo: %+v", reloaded.View())
 	}
-	if _, err := manager.Save(Input{Warmth: "clingy"}); err == nil {
-		t.Fatal("unsupported warmth should be rejected")
+	if _, err := manager.Save(Input{SearchProvider: "other"}); err == nil {
+		t.Fatal("unsupported search provider should be rejected")
 	}
 	if _, err := manager.Save(Input{Personality: "dramatic"}); err == nil {
 		t.Fatal("unsupported personality should be rejected")
-	}
-	if _, err := manager.Save(Input{Emoji: "always"}); err == nil {
-		t.Fatal("unsupported emoji level should be rejected")
 	}
 	tooLong := strings.Repeat("a", MaxCustomInstructions+1)
 	if _, err := manager.Save(Input{CustomInstructions: &tooLong}); err == nil {
@@ -467,29 +572,24 @@ func TestKeychainUnavailableFallsBackToSessionOnly(t *testing.T) {
 		!strings.Contains(view.KeychainError, keychainErr.Error()) {
 		t.Fatalf("keychain status = %+v", view)
 	}
-
-	saved, err := manager.Save(Input{
-		BaseURL:        "https://api.example.com/v1",
-		Model:          "test-model",
-		APIKey:         "session-only-key",
-		SearchProvider: SearchProviderTavily,
-		TavilyAPIKey:   "session-only-search-key",
+	saved, err := manager.AddModel(ModelInput{
+		Provider: ProviderOpenAI,
+		BaseURL:  "https://api.example.com/v1",
+		Model:    "test-model",
+		APIKey:   "session-only-key",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if saved.APIKeyStorage != KeyStorageSession || !saved.HasAPIKey || !saved.Configured {
+	if saved.Models[0].APIKeyStorage != KeyStorageSession ||
+		!saved.Models[0].HasAPIKey || !saved.Configured {
 		t.Fatalf("session-only view = %+v", saved)
-	}
-	if saved.TavilyAPIKeyStorage != KeyStorageSession || !saved.HasTavilyAPIKey {
-		t.Fatalf("session-only search key = %+v", saved)
 	}
 	data, err := os.ReadFile(filepath.Join(dir, "config.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(data), "session-only-key") ||
-		strings.Contains(string(data), "session-only-search-key") {
+	if strings.Contains(string(data), "session-only-key") {
 		t.Fatalf("session-only key was written to config: %s", data)
 	}
 
@@ -497,16 +597,12 @@ func TestKeychainUnavailableFallsBackToSessionOnly(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if reloaded.View().HasAPIKey {
+	if reloaded.View().Models[0].HasAPIKey || reloaded.View().Configured {
 		t.Fatal("session-only key survived a restart")
-	}
-	if reloaded.View().SearchProvider != SearchProviderDuckDuckGo ||
-		reloaded.View().HasTavilyAPIKey {
-		t.Fatalf("lost Tavily key did not fall back to DuckDuckGo: %+v", reloaded.View())
 	}
 }
 
-func TestKeychainOverridesEnvironmentAndEnvironmentCannotBeCleared(t *testing.T) {
+func TestKeychainOverridesEnvironment(t *testing.T) {
 	clearConfigEnv(t)
 	t.Setenv("OPENAI_API_KEY", "env-key")
 	secrets := newFakeSecretStore()
@@ -516,24 +612,9 @@ func TestKeychainOverridesEnvironmentAndEnvironmentCannotBeCleared(t *testing.T)
 		t.Fatal(err)
 	}
 	view := manager.View()
-	if view.APIKeyStorage != KeyStorageKeychain || manager.Settings().APIKey != "keychain-key" {
+	if view.Models[0].APIKeyStorage != KeyStorageKeychain ||
+		manager.Settings().APIKey != "keychain-key" {
 		t.Fatalf("keychain did not override env: %+v", view)
-	}
-
-	envOnly := newFakeSecretStore()
-	envManager, err := NewManager(t.TempDir(), envOnly)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if view := envManager.View(); view.APIKeyStorage != KeyStorageEnvironment {
-		t.Fatalf("environment source = %+v", view)
-	}
-	if _, err := envManager.ClearAPIKey(); err == nil ||
-		!strings.Contains(err.Error(), "OPENAI_API_KEY") {
-		t.Fatalf("environment key clear error = %v", err)
-	}
-	if !envManager.View().HasAPIKey {
-		t.Fatal("failed environment clear removed the key")
 	}
 }
 
@@ -544,14 +625,21 @@ func TestSecretDeleteFailureKeepsKey(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := manager.Save(Input{APIKey: "sk-delete"}); err != nil {
+	view, err := manager.AddModel(ModelInput{
+		Provider: ProviderOpenAI,
+		BaseURL:  "https://api.example.com/v1",
+		Model:    "test-model",
+		APIKey:   "sk-delete",
+	})
+	if err != nil {
 		t.Fatal(err)
 	}
 	secrets.deleteErr = errors.New("keychain is locked")
-	if _, err := manager.ClearAPIKey(); err == nil {
+	if _, err := manager.ClearModelAPIKey(view.Models[0].ID); err == nil {
 		t.Fatal("expected delete failure")
 	}
-	if !manager.View().HasAPIKey || secrets.values[ModelSecretKey] != "sk-delete" {
+	if !manager.View().Models[0].HasAPIKey ||
+		secrets.values[modelSecretKey(view.Models[0].ID)] != "sk-delete" {
 		t.Fatal("delete failure changed key state")
 	}
 }
@@ -564,7 +652,10 @@ func TestOversizedSecretsAreRejected(t *testing.T) {
 		t.Fatal(err)
 	}
 	tooLong := strings.Repeat("a", MaxSecretBytes+1)
-	if _, err := manager.Save(Input{APIKey: tooLong}); err == nil {
+	if _, err := manager.AddModel(ModelInput{
+		Provider: ProviderGoogle,
+		APIKey:   tooLong,
+	}); err == nil {
 		t.Fatal("oversized API key should be rejected")
 	}
 	if len(secrets.values) != 0 {
@@ -572,9 +663,39 @@ func TestOversizedSecretsAreRejected(t *testing.T) {
 	}
 }
 
+func TestLoadErrorKeepsDefaults(t *testing.T) {
+	clearConfigEnv(t)
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.json")
+	if err := os.WriteFile(path, []byte("{"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	manager := newTestManager(t, dir)
+	if manager.LoadError() == nil {
+		t.Fatal("expected a load error for malformed JSON")
+	}
+	if len(manager.View().Models) != 0 {
+		t.Fatalf("unexpected defaults: %+v", manager.View())
+	}
+	if _, err := manager.Save(Input{Personality: PersonalityCandid}); err != nil {
+		t.Fatal(err)
+	}
+	if manager.LoadError() != nil {
+		t.Fatal("a successful save should clear the load error")
+	}
+	if !strings.HasSuffix(manager.View().ConfigPath, "config.json") {
+		t.Fatalf("config path = %q", manager.View().ConfigPath)
+	}
+}
+
 func clearConfigEnv(t *testing.T) {
 	t.Helper()
-	for _, key := range []string{"OPENAI_BASE_URL", "OPENAI_API_KEY", "OPENAI_MODEL", "MIRA_PROTOCOL"} {
+	for _, key := range []string{
+		"OPENAI_BASE_URL", "OPENAI_API_KEY", "OPENAI_MODEL", "MIRA_PROTOCOL",
+		"AZURE_OPENAI_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY",
+		"ANTHROPIC_API_KEY", "DEEPSEEK_API_KEY", "OPENROUTER_API_KEY", "XAI_API_KEY",
+	} {
 		t.Setenv(key, "")
 	}
 }

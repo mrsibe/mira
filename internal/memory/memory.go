@@ -265,6 +265,7 @@ func (m *Manager) Search(
 
 func (m *Manager) shouldStartSummaryLocked(settings config.Settings, initial bool) bool {
 	if m.running || m.fileErr != nil ||
+		strings.TrimSpace(settings.Model) == "" ||
 		!settings.MemoryEnabled || !settings.MemorySummaryEnabled {
 		return false
 	}

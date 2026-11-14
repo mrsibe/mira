@@ -2,6 +2,7 @@ export { Button, type ButtonVariant } from "./Button";
 export { cx } from "./cx";
 export { Field } from "./Field";
 export { IconButton } from "./IconButton";
+export { Input } from "./Input";
 export { Modal } from "./Modal";
 export { Notice } from "./Notice";
 export { PopupMenu } from "./PopupMenu";

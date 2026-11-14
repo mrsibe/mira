@@ -14,7 +14,13 @@ import (
 
 	"github.com/mrsibe/goat/agent"
 	"github.com/mrsibe/goat/ai"
+	"github.com/mrsibe/goat/ai/anthropic"
+	"github.com/mrsibe/goat/ai/azure"
+	"github.com/mrsibe/goat/ai/deepseek"
+	"github.com/mrsibe/goat/ai/google"
 	"github.com/mrsibe/goat/ai/openai"
+	"github.com/mrsibe/goat/ai/openrouter"
+	"github.com/mrsibe/goat/ai/xai"
 	"github.com/mrsibe/mira/internal/config"
 	"github.com/mrsibe/mira/internal/memory"
 	"github.com/mrsibe/mira/internal/prompt"
@@ -86,28 +92,80 @@ func (e *Engine) NewAgent(
 }
 
 func newModel(settings config.Settings) (ai.Model, error) {
-	switch settings.Protocol {
-	case config.ProtocolCompletions:
-		model, err := openai.NewCompletions(openai.Config{
-			APIKey:  settings.APIKey,
-			BaseURL: settings.BaseURL,
-			Model:   settings.Model,
-		})
-		if err != nil {
-			return nil, fmt.Errorf("create model: %w", err)
+	var (
+		model ai.Model
+		err   error
+	)
+	switch settings.Provider {
+	case config.ProviderAzure:
+		cfg := azure.Config{
+			APIKey:   settings.APIKey,
+			Endpoint: settings.BaseURL,
+			Model:    settings.Model,
+			Provider: settings.Provider,
 		}
-		return model, nil
+		if settings.Protocol == config.ProtocolCompletions {
+			model, err = azure.NewCompletions(cfg)
+		} else {
+			model, err = azure.NewResponses(cfg)
+		}
+	case config.ProviderGoogle:
+		model, err = google.New(google.Config{
+			APIKey:   settings.APIKey,
+			BaseURL:  settings.BaseURL,
+			Model:    settings.Model,
+			Provider: settings.Provider,
+		})
+	case config.ProviderAnthropic:
+		model, err = anthropic.New(anthropic.Config{
+			APIKey:   settings.APIKey,
+			BaseURL:  settings.BaseURL,
+			Model:    settings.Model,
+			Provider: settings.Provider,
+		})
+	case config.ProviderDeepSeek:
+		model, err = deepseek.New(deepseek.Config{
+			APIKey:   settings.APIKey,
+			BaseURL:  settings.BaseURL,
+			Model:    settings.Model,
+			Provider: settings.Provider,
+		})
+	case config.ProviderOpenRouter:
+		cfg := openrouter.Config{
+			APIKey:   settings.APIKey,
+			BaseURL:  settings.BaseURL,
+			Model:    settings.Model,
+			Provider: settings.Provider,
+		}
+		if settings.Protocol == config.ProtocolMessages {
+			model, err = openrouter.NewMessages(cfg)
+		} else {
+			model, err = openrouter.NewCompletions(cfg)
+		}
+	case config.ProviderXAI:
+		model, err = xai.New(xai.Config{
+			APIKey:   settings.APIKey,
+			BaseURL:  settings.BaseURL,
+			Model:    settings.Model,
+			Provider: settings.Provider,
+		})
 	default:
-		model, err := openai.NewResponses(openai.Config{
-			APIKey:  settings.APIKey,
-			BaseURL: settings.BaseURL,
-			Model:   settings.Model,
-		})
-		if err != nil {
-			return nil, fmt.Errorf("create model: %w", err)
+		cfg := openai.Config{
+			APIKey:   settings.APIKey,
+			BaseURL:  settings.BaseURL,
+			Model:    settings.Model,
+			Provider: settings.Provider,
 		}
-		return model, nil
+		if settings.Protocol == config.ProtocolCompletions {
+			model, err = openai.NewCompletions(cfg)
+		} else {
+			model, err = openai.NewResponses(cfg)
+		}
 	}
+	if err != nil {
+		return nil, fmt.Errorf("create model: %w", err)
+	}
+	return model, nil
 }
 
 func (e *Engine) toolsFor(settings config.Settings, conversationID string) ([]agent.Tool, string) {
@@ -179,6 +237,45 @@ func Complete(
 		}
 	}
 	return text.String(), nil
+}
+
+// TestModel sends one minimal request through the same model factory used by
+// chat runs. It does not persist anything.
+func TestModel(ctx context.Context, settings config.Settings) error {
+	model, err := newModel(settings)
+	if err != nil {
+		return err
+	}
+	stream, err := model.Stream(ctx, ai.Request{
+		Messages: []ai.Message{ai.TextMessage(ai.RoleUser, "Reply with OK.")},
+		Options:  ai.RequestOptions{MaxTokens: 16},
+	})
+	if err != nil {
+		return err
+	}
+	defer stream.Close()
+
+	for {
+		event, nextErr := stream.Next()
+		if errors.Is(nextErr, io.EOF) {
+			return errors.New("连接已关闭，未收到模型响应")
+		}
+		if nextErr != nil {
+			return nextErr
+		}
+		switch event.Type {
+		case ai.EventTextDelta, ai.EventDone:
+			return nil
+		case ai.EventError:
+			if event.Err != nil {
+				return event.Err
+			}
+			if event.Error != "" {
+				return errors.New(event.Error)
+			}
+			return errors.New("model stream reported an error")
+		}
+	}
 }
 
 // ChatEvent is one streamed update sent through a MyGo channel.

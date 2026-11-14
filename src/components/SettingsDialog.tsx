@@ -1,7 +1,7 @@
 import { type FormEvent, useCallback, useEffect, useState } from "react";
 import type { Appearance } from "../lib/appearance";
 import type { SettingsSection, ThemeMode } from "../lib/types";
-import { type Input, Mira, type View } from "../mygo";
+import { type Input, Mira, type ModelView, type View } from "../mygo";
 import { Button, Modal, Notice } from "../ui";
 import { AboutSettings } from "./settings/AboutSettings";
 import { GeneralSettings } from "./settings/GeneralSettings";
@@ -20,7 +20,10 @@ type SettingsDialogProps = {
   initialSection: SettingsSection;
   onClose: () => void;
   onSave: (input: Input) => Promise<View>;
-  onClearKey: () => Promise<View>;
+  onActivateModel: (id: string) => Promise<View>;
+  onAddModel: () => void;
+  onEditModel: (model: ModelView) => void;
+  onDeleteModel: (id: string) => Promise<View>;
   onClearTavilyKey: () => Promise<View>;
   onThemeChange: (theme: ThemeMode) => void;
   onAppearanceChange: (appearance: Appearance) => void;
@@ -33,7 +36,10 @@ export function SettingsDialog({
   initialSection,
   onClose,
   onSave,
-  onClearKey,
+  onActivateModel,
+  onAddModel,
+  onEditModel,
+  onDeleteModel,
   onClearTavilyKey,
   onThemeChange,
   onAppearanceChange,
@@ -82,15 +88,10 @@ export function SettingsDialog({
       return;
     }
 
-    const enteredModelKey = draft.apiKey.trim() !== "";
     const enteredTavilyKey = draft.tavilyApiKey.trim() !== "";
     setSaving(true);
     try {
       const saved = await onSave({
-        baseUrl: draft.baseUrl,
-        model: draft.model,
-        protocol: draft.protocol,
-        apiKey: draft.apiKey,
         userName: draft.userName,
         webSearchEnabled: draft.webSearchEnabled,
         searchProvider: draft.searchProvider,
@@ -106,7 +107,6 @@ export function SettingsDialog({
         memorySearchEnabled: draft.memorySearchEnabled,
         intelligentUIEnabled: draft.intelligentUIEnabled,
       });
-      setField("apiKey", "");
       setField("tavilyApiKey", "");
       if (memory.dirty) {
         try {
@@ -117,10 +117,7 @@ export function SettingsDialog({
           return;
         }
       }
-      if (
-        (enteredModelKey && saved.apiKeyStorage === "session") ||
-        (enteredTavilyKey && saved.tavilyApiKeyStorage === "session")
-      ) {
+      if (enteredTavilyKey && saved.tavilyApiKeyStorage === "session") {
         setNotice("系统钥匙串不可用，刚输入的密钥只保存在本次会话，重启后需要重新输入。");
         return;
       }
@@ -168,9 +165,10 @@ export function SettingsDialog({
             {section === "model" && (
               <ModelSettings
                 settings={settings}
-                draft={draft}
-                setField={setField}
-                onClearKey={onClearKey}
+                onActivateModel={onActivateModel}
+                onAddModel={onAddModel}
+                onEditModel={onEditModel}
+                onDeleteModel={onDeleteModel}
                 onError={setError}
               />
             )}
@@ -182,7 +180,7 @@ export function SettingsDialog({
 
           <footer className="modal-actions settings-footer">
             <span className="spacer" />
-            {section === "about" || section === "general" ? (
+            {section === "about" || section === "general" || section === "model" ? (
               <Button onClick={onClose}>完成</Button>
             ) : (
               <>
@@ -201,12 +199,7 @@ export function SettingsDialog({
 
 function createDraft(settings: View): SettingsDraft {
   return {
-    baseUrl: settings.baseUrl,
-    model: settings.model,
-    protocol: settings.protocol,
     userName: settings.userName,
-    apiKey: "",
-    showKey: false,
     webSearchEnabled: settings.webSearchEnabled,
     searchProvider: settings.searchProvider === "tavily" ? "tavily" : "duckduckgo",
     tavilyApiKey: "",

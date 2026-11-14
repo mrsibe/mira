@@ -547,9 +547,13 @@ body.conversation-dragging * {
   place-items: center;
 }
 
-.icon-button:hover {
+.icon-button:hover:not(:disabled) {
   color: var(--text);
   background: var(--bg-hover);
+}
+
+.icon-button:disabled {
+  opacity: 0.45;
 }
 
 .config-banner {

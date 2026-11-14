@@ -1,4 +1,4 @@
-import { Field, SegmentedControl, Switch } from "../../ui";
+import { Field, Input, SegmentedControl, Switch } from "../../ui";
 import type { SetDraftField, SettingsDraft } from "./types";
 
 type PreferenceKey = "responseStyle" | "warmth" | "enthusiasm" | "emoji";
@@ -66,7 +66,7 @@ export function PersonalizationSettings({ draft, setField }: PersonalizationSett
       <section className="settings-group">
         <Field label="称呼">
           {(id) => (
-            <input
+            <Input
               id={id}
               value={draft.userName}
               maxLength={32}

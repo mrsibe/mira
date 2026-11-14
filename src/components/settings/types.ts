@@ -1,12 +1,7 @@
 import type { SearchProvider } from "../../lib/types";
 
 export type SettingsDraft = {
-  baseUrl: string;
-  model: string;
-  protocol: string;
   userName: string;
-  apiKey: string;
-  showKey: boolean;
   webSearchEnabled: boolean;
   searchProvider: SearchProvider;
   tavilyApiKey: string;

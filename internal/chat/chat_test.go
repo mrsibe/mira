@@ -3,6 +3,8 @@ package chat
 import (
 	"context"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -269,4 +271,145 @@ func hasTool(tools []agent.Tool, name string) bool {
 		}
 	}
 	return false
+}
+
+func TestNewModelRoutesProviders(t *testing.T) {
+	tests := []struct {
+		name         string
+		settings     config.Settings
+		wantAPI      ai.API
+		wantProvider string
+	}{
+		{
+			name:         "openai responses",
+			settings:     config.Settings{Provider: config.ProviderOpenAI, Protocol: config.ProtocolResponses},
+			wantAPI:      ai.APIOpenAIResponses,
+			wantProvider: config.ProviderOpenAI,
+		},
+		{
+			name:         "openai completions",
+			settings:     config.Settings{Provider: config.ProviderOpenAI, Protocol: config.ProtocolCompletions},
+			wantAPI:      ai.APIOpenAICompletions,
+			wantProvider: config.ProviderOpenAI,
+		},
+		{
+			name: "azure responses",
+			settings: config.Settings{
+				Provider: config.ProviderAzure,
+				BaseURL:  "https://example.openai.azure.com/openai/v1",
+				Protocol: config.ProtocolResponses,
+			},
+			wantAPI:      ai.APIAzureOpenAIResponses,
+			wantProvider: config.ProviderAzure,
+		},
+		{
+			name: "azure completions",
+			settings: config.Settings{
+				Provider: config.ProviderAzure,
+				BaseURL:  "https://example.openai.azure.com/openai/v1",
+				Protocol: config.ProtocolCompletions,
+			},
+			wantAPI:      ai.APIOpenAICompletions,
+			wantProvider: config.ProviderAzure,
+		},
+		{
+			name:         "google",
+			settings:     config.Settings{Provider: config.ProviderGoogle},
+			wantAPI:      ai.APIGoogleGenerativeAI,
+			wantProvider: config.ProviderGoogle,
+		},
+		{
+			name:         "anthropic",
+			settings:     config.Settings{Provider: config.ProviderAnthropic},
+			wantAPI:      ai.APIAnthropicMessages,
+			wantProvider: config.ProviderAnthropic,
+		},
+		{
+			name:         "deepseek",
+			settings:     config.Settings{Provider: config.ProviderDeepSeek},
+			wantAPI:      ai.APIOpenAICompletions,
+			wantProvider: config.ProviderDeepSeek,
+		},
+		{
+			name:         "openrouter completions",
+			settings:     config.Settings{Provider: config.ProviderOpenRouter, Protocol: config.ProtocolCompletions},
+			wantAPI:      ai.APIOpenAICompletions,
+			wantProvider: config.ProviderOpenRouter,
+		},
+		{
+			name:         "openrouter messages",
+			settings:     config.Settings{Provider: config.ProviderOpenRouter, Protocol: config.ProtocolMessages},
+			wantAPI:      ai.APIAnthropicMessages,
+			wantProvider: config.ProviderOpenRouter,
+		},
+		{
+			name:         "xai",
+			settings:     config.Settings{Provider: config.ProviderXAI},
+			wantAPI:      ai.APIOpenAIResponses,
+			wantProvider: config.ProviderXAI,
+		},
+		{
+			name:         "custom",
+			settings:     config.Settings{Provider: config.ProviderCustom, Protocol: config.ProtocolCompletions},
+			wantAPI:      ai.APIOpenAICompletions,
+			wantProvider: config.ProviderCustom,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			settings := test.settings
+			settings.APIKey = "test-key"
+			settings.Model = "test-model"
+			model, err := newModel(settings)
+			if err != nil {
+				t.Fatal(err)
+			}
+			info := model.Info()
+			if info.API != test.wantAPI || info.Provider != test.wantProvider {
+				t.Fatalf("info = %+v", info)
+			}
+		})
+	}
+}
+
+func TestTestModelSendsMinimalRequest(t *testing.T) {
+	var gotPath string
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		gotPath = request.URL.Path
+		writer.Header().Set("Content-Type", "text/event-stream")
+		_, _ = writer.Write([]byte("data: {\"id\":\"1\",\"object\":\"chat.completion.chunk\",\"created\":1,\"model\":\"test\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"OK\"},\"finish_reason\":null}]}\n\n"))
+		_, _ = writer.Write([]byte("data: [DONE]\n\n"))
+	}))
+	defer server.Close()
+
+	err := TestModel(context.Background(), config.Settings{
+		Provider: config.ProviderCustom,
+		BaseURL:  server.URL,
+		Model:    "test-model",
+		Protocol: config.ProtocolCompletions,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasSuffix(gotPath, "/chat/completions") {
+		t.Fatalf("request path = %q", gotPath)
+	}
+}
+
+func TestTestModelReportsProviderError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		writer.WriteHeader(http.StatusUnauthorized)
+		_, _ = writer.Write([]byte(`{"error":{"message":"bad key","type":"invalid_request_error"}}`))
+	}))
+	defer server.Close()
+
+	err := TestModel(context.Background(), config.Settings{
+		Provider: config.ProviderCustom,
+		BaseURL:  server.URL,
+		Model:    "test-model",
+		Protocol: config.ProtocolCompletions,
+	})
+	if err == nil || !strings.Contains(err.Error(), "bad key") {
+		t.Fatalf("error = %v", err)
+	}
 }

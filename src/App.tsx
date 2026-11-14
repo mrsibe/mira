@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { BrandMark } from "./components/BrandMark";
 import { Composer } from "./components/Composer";
 import { ConfirmDialog } from "./components/ConfirmDialog";
+import { ModelWizard } from "./components/ModelWizard";
 import { ProjectDialog } from "./components/ProjectDialog";
 import { SearchDialog } from "./components/SearchDialog";
 import { SettingsDialog } from "./components/SettingsDialog";
@@ -11,6 +12,7 @@ import { Thread } from "./components/Thread";
 import { Welcome } from "./components/Welcome";
 import { WindowTitlebar } from "./components/WindowTitlebar";
 import { type Appearance, applyAppearance, loadAppearance, saveAppearance } from "./lib/appearance";
+import { shouldAutoOpenModelWizard } from "./lib/modelWizard";
 import { applyChatEvent, emptyRun } from "./lib/run";
 import type { ReasoningEffort, RunView, SettingsSection, ThemeMode } from "./lib/types";
 import {
@@ -19,17 +21,23 @@ import {
   type Input,
   Mira,
   MiraTheme,
+  type ModelInput,
+  type ModelView,
   type Project,
+  type ProviderInfo,
   type UIMessage,
   type View,
 } from "./mygo";
 import { Toast } from "./ui";
 
 const reasoningStorageKey = "mira-reasoning-effort";
+const modelWizardDismissedKey = "mira-model-wizard-dismissed";
 
 type ProjectDialogState =
   | { mode: "create"; afterMoveConversationID?: string }
   | { mode: "rename"; project: Project };
+
+type ModelWizardState = { mode: "add" } | { mode: "edit"; model: ModelView };
 
 function initialReasoningEffort(): ReasoningEffort {
   const saved = localStorage.getItem(reasoningStorageKey);
@@ -38,6 +46,8 @@ function initialReasoningEffort(): ReasoningEffort {
 
 export default function App() {
   const [settings, setSettings] = useState<View | null>(null);
+  const [providers, setProviders] = useState<ProviderInfo[]>([]);
+  const [wizard, setWizard] = useState<ModelWizardState | null>(null);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
   const [messages, setMessages] = useState<Record<string, UIMessage[]>>({});
@@ -82,6 +92,16 @@ export default function App() {
     setSettingsOpen(true);
   }, []);
 
+  const requestModelSetup = useCallback(() => {
+    if (!settings) return;
+    if (settings.models.length === 0) {
+      setSettingsOpen(false);
+      setWizard({ mode: "add" });
+      return;
+    }
+    openSettings("model");
+  }, [openSettings, settings]);
+
   const loadConversation = useCallback(async (id: string) => {
     const detail = await Mira.getConversation(id);
     setMessages((previous) => ({ ...previous, [id]: detail.messages }));
@@ -104,9 +124,18 @@ export default function App() {
         const data = await Mira.bootstrap();
         if (!alive) return;
         setSettings(data.settings);
+        setProviders(data.providers);
         setConversations(data.conversations);
         setProjects(data.projects);
         setConfigError(data.configError ?? "");
+        if (
+          shouldAutoOpenModelWizard(
+            data.settings,
+            localStorage.getItem(modelWizardDismissedKey) === "1",
+          )
+        ) {
+          setWizard({ mode: "add" });
+        }
         const first = data.conversations[0];
         if (first) {
           setActiveId(first.id);
@@ -199,7 +228,7 @@ export default function App() {
       const content = raw.trim();
       if (!content) return;
       if (!settings?.configured) {
-        openSettings("model");
+        requestModelSetup();
         return;
       }
       if (runningId) {
@@ -252,7 +281,7 @@ export default function App() {
       runningId,
       settings,
       showToast,
-      openSettings,
+      requestModelSetup,
       streamRun,
     ],
   );
@@ -262,7 +291,7 @@ export default function App() {
       const content = raw.trim();
       if (!content || !activeId) return;
       if (!settings?.configured) {
-        openSettings("model");
+        requestModelSetup();
         return;
       }
       if (runningId) {
@@ -292,14 +321,14 @@ export default function App() {
         ),
       );
     },
-    [activeId, openSettings, reasoningEffort, runningId, settings, showToast, streamRun],
+    [activeId, reasoningEffort, requestModelSetup, runningId, settings, showToast, streamRun],
   );
 
   const regenerateMessage = useCallback(
     async (messageIndex: number) => {
       if (!activeId) return;
       if (!settings?.configured) {
-        openSettings("model");
+        requestModelSetup();
         return;
       }
       if (runningId) {
@@ -327,7 +356,16 @@ export default function App() {
         ),
       );
     },
-    [activeId, messages, openSettings, reasoningEffort, runningId, settings, showToast, streamRun],
+    [
+      activeId,
+      messages,
+      reasoningEffort,
+      requestModelSetup,
+      runningId,
+      settings,
+      showToast,
+      streamRun,
+    ],
   );
 
   const forkMessage = useCallback(
@@ -505,8 +543,34 @@ export default function App() {
     return saved;
   }
 
-  async function clearKey() {
-    const saved = await Mira.clearAPIKey();
+  async function activateModel(id: string) {
+    const saved = await Mira.activateModel(id);
+    setSettings(saved);
+    return saved;
+  }
+
+  async function addModel(input: ModelInput) {
+    const saved = await Mira.addModel(input);
+    setSettings(saved);
+    setConfigError("");
+    localStorage.removeItem(modelWizardDismissedKey);
+    return saved;
+  }
+
+  async function updateModel(input: ModelInput) {
+    const saved = await Mira.updateModel(input);
+    setSettings(saved);
+    return saved;
+  }
+
+  async function deleteModel(id: string) {
+    const saved = await Mira.deleteModel(id);
+    setSettings(saved);
+    return saved;
+  }
+
+  async function clearModelKey(id: string) {
+    const saved = await Mira.clearModelAPIKey(id);
     setSettings(saved);
     return saved;
   }
@@ -651,10 +715,47 @@ export default function App() {
           initialSection={settingsSection}
           onClose={() => setSettingsOpen(false)}
           onSave={saveSettings}
-          onClearKey={clearKey}
+          onActivateModel={activateModel}
+          onAddModel={() => {
+            setSettingsOpen(false);
+            setWizard({ mode: "add" });
+          }}
+          onEditModel={(model) => {
+            setSettingsOpen(false);
+            setWizard({ mode: "edit", model });
+          }}
+          onDeleteModel={deleteModel}
           onClearTavilyKey={clearTavilyKey}
           onThemeChange={setTheme}
           onAppearanceChange={setAppearance}
+        />
+      )}
+
+      {settings && wizard && (
+        <ModelWizard
+          mode={wizard.mode}
+          providers={providers}
+          initialModel={wizard.mode === "edit" ? wizard.model : undefined}
+          firstRun={wizard.mode === "add" && settings.models.length === 0}
+          keychainAvailable={settings.keychainAvailable}
+          keychainError={settings.keychainError}
+          onClose={() => setWizard(null)}
+          onSkip={
+            wizard.mode === "add" && settings.models.length === 0
+              ? () => {
+                  localStorage.setItem(modelWizardDismissedKey, "1");
+                  setWizard(null);
+                }
+              : undefined
+          }
+          onTest={Mira.testModel}
+          onSubmit={async (input) => {
+            const saved = wizard.mode === "edit" ? await updateModel(input) : await addModel(input);
+            setWizard(null);
+            showToast(wizard.mode === "edit" ? "模型已更新" : "模型已添加并启用");
+            return saved;
+          }}
+          onClearKey={clearModelKey}
         />
       )}
 

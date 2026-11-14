@@ -710,7 +710,8 @@ func newTestService(t *testing.T, factory agentFactory) (*Service, string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := cfg.Save(config.Input{
+	if _, err := cfg.AddModel(config.ModelInput{
+		Provider: config.ProviderCustom,
 		BaseURL:  "http://localhost:11434/v1",
 		Model:    "test-model",
 		Protocol: config.ProtocolResponses,
@@ -726,6 +727,79 @@ func newTestService(t *testing.T, factory agentFactory) (*Service, string) {
 		t.Fatal(err)
 	}
 	return New(cfg, conversations, factory, nil), conversation.ID
+}
+
+func TestModelServiceMethodsUseStoredKey(t *testing.T) {
+	cfg, err := config.NewManager(t.TempDir(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	conversations, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc := New(cfg, conversations, nil, nil)
+
+	var captured config.Settings
+	svc.test = func(_ context.Context, settings config.Settings) error {
+		captured = settings
+		return nil
+	}
+
+	view, err := svc.AddModel(config.ModelInput{
+		Provider: config.ProviderOpenAI,
+		BaseURL:  "https://api.example.com/v1",
+		Model:    "test-model",
+		Protocol: config.ProtocolCompletions,
+		APIKey:   "stored-key",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	model := view.Models[0]
+	if view.ActiveModelID != model.ID || !view.Configured {
+		t.Fatalf("added model = %+v", view)
+	}
+
+	if err := svc.TestModel(config.ModelInput{
+		ID:       model.ID,
+		Provider: model.Provider,
+		BaseURL:  model.BaseURL,
+		Model:    model.Model,
+		Protocol: model.Protocol,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if captured.APIKey != "stored-key" {
+		t.Fatalf("stored key was not used: %+v", captured)
+	}
+
+	if err := svc.TestModel(config.ModelInput{
+		ID:       model.ID,
+		Provider: model.Provider,
+		BaseURL:  model.BaseURL,
+		Model:    model.Model,
+		Protocol: model.Protocol,
+		APIKey:   "draft-key",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if captured.APIKey != "draft-key" {
+		t.Fatalf("draft key was not used: %+v", captured)
+	}
+
+	svc.test = func(context.Context, config.Settings) error {
+		return errors.New("connection failed")
+	}
+	if err := svc.TestModel(config.ModelInput{
+		ID:       model.ID,
+		Provider: model.Provider,
+		BaseURL:  model.BaseURL,
+		Model:    model.Model,
+		Protocol: model.Protocol,
+	}); err == nil || !strings.Contains(err.Error(), "connection failed") {
+		t.Fatalf("test error = %v", err)
+	}
 }
 
 func deltaText(events []chat.ChatEvent) string {

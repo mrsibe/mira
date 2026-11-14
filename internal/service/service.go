@@ -26,7 +26,7 @@ const (
 
 var (
 	errBusy          = errors.New("正在生成回复，请先停止当前回复")
-	errNotConfigured = errors.New("请先在设置中配置模型和 API Key")
+	errNotConfigured = errors.New("请先添加并启用模型")
 )
 
 // Service is bound to the page as `Mira`.
@@ -35,6 +35,7 @@ type Service struct {
 	store  *store.Store
 	memory *memory.Manager
 	engine agentFactory
+	test   func(context.Context, config.Settings) error
 
 	mu     sync.Mutex
 	active *activeRun
@@ -51,17 +52,24 @@ func New(
 	engine agentFactory,
 	memoryManager *memory.Manager,
 ) *Service {
-	return &Service{cfg: cfg, store: conversationStore, engine: engine, memory: memoryManager}
+	return &Service{
+		cfg:    cfg,
+		store:  conversationStore,
+		engine: engine,
+		memory: memoryManager,
+		test:   chat.TestModel,
+	}
 }
 
 // Bootstrap is the first call the page makes.
 type Bootstrap struct {
-	Settings             config.View          `json:"settings"`
-	Conversations        []store.Conversation `json:"conversations"`
-	Projects             []store.Project      `json:"projects"`
-	ActiveConversationID string               `json:"activeConversationId,omitempty"`
-	Version              string               `json:"version"`
-	ConfigError          string               `json:"configError,omitempty"`
+	Settings             config.View           `json:"settings"`
+	Providers            []config.ProviderInfo `json:"providers"`
+	Conversations        []store.Conversation  `json:"conversations"`
+	Projects             []store.Project       `json:"projects"`
+	ActiveConversationID string                `json:"activeConversationId,omitempty"`
+	Version              string                `json:"version"`
+	ConfigError          string                `json:"configError,omitempty"`
 }
 
 // ConversationDetail restores one thread.
@@ -90,6 +98,7 @@ type EventSink interface {
 func (s *Service) Bootstrap() Bootstrap {
 	result := Bootstrap{
 		Settings:      s.cfg.View(),
+		Providers:     config.Providers(),
 		Conversations: s.store.List(),
 		Projects:      s.store.ListProjects(),
 		Version:       mygo.App.Version(),
@@ -262,6 +271,9 @@ func (s *Service) RegenerateMemory() (memory.View, error) {
 	if s.memory == nil {
 		return memory.View{}, errors.New("记忆功能未初始化")
 	}
+	if !s.cfg.View().Configured {
+		return memory.View{}, errNotConfigured
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
 	return s.memory.Regenerate(ctx, s.cfg.Settings())
@@ -275,9 +287,43 @@ func (s *Service) ClearMemory() (memory.View, error) {
 	return s.memory.Clear()
 }
 
-// ClearAPIKey removes the saved key.
-func (s *Service) ClearAPIKey() (config.View, error) {
-	return s.cfg.ClearAPIKey()
+// AddModel creates a model and makes it active.
+func (s *Service) AddModel(input config.ModelInput) (config.View, error) {
+	return s.cfg.AddModel(input)
+}
+
+// UpdateModel updates one model's connection fields.
+func (s *Service) UpdateModel(input config.ModelInput) (config.View, error) {
+	return s.cfg.UpdateModel(input)
+}
+
+// DeleteModel removes one model.
+func (s *Service) DeleteModel(id string) (config.View, error) {
+	return s.cfg.DeleteModel(id)
+}
+
+// ActivateModel switches the current model.
+func (s *Service) ActivateModel(id string) (config.View, error) {
+	return s.cfg.ActivateModel(id)
+}
+
+// ClearModelAPIKey removes one model's saved key.
+func (s *Service) ClearModelAPIKey(id string) (config.View, error) {
+	return s.cfg.ClearModelAPIKey(id)
+}
+
+// TestModel verifies a draft model without persisting it.
+func (s *Service) TestModel(input config.ModelInput) error {
+	settings, err := s.cfg.ResolveModelSettings(input)
+	if err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	if s.test == nil {
+		return chat.TestModel(ctx, settings)
+	}
+	return s.test(ctx, settings)
 }
 
 // ClearTavilyAPIKey removes the saved search key.

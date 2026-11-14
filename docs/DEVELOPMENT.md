@@ -7,9 +7,9 @@
 
 | 层 | 选择 |
 | --- | --- |
-| 桌面外壳 | MyGo `v0.8.3` |
+| 桌面外壳 | MyGo `v0.9.0` |
 | Go ↔ TypeScript | MyGo typed bindings + `Channel[T]` |
-| Agent | GOAT `v0.2.0` |
+| Agent | GOAT `v0.5.0` |
 | 前端 | React 19、TypeScript、Vite |
 | Markdown | `react-markdown`、`remark-gfm`、`rehype-highlight` |
 | 图标 | `lucide-react` |
@@ -54,27 +54,59 @@ bun run generate:ui-prompt
 
 ## 模型与搜索配置
 
-首次启动后，点击侧栏底部的“设置”。设置分为外观 / 个性化 / 记忆 / 搜索 /
-模型 / 关于六个栏目。在“模型”中填写：
+首次启动且没有模型时，Mira 会自动打开“添加第一个模型”向导。向导分两步：
+选择服务商，再填写名称、Base URL、模型、API 协议和 API Key。连接测试是可选
+操作，不会阻止保存。跳过向导后会在 `localStorage` 中记录
+`mira-model-wizard-dismissed`，之后可通过“设置 → 模型”重新打开。
 
-- **Base URL**：例如 `https://api.openai.com/v1`
-- **模型**：例如 `gpt-5`
-- **API 协议**：Responses 或 Chat Completions
-- **API Key**：保存到系统钥匙串；本地无鉴权服务可以留空
+支持的服务商：
 
-非敏感设置从本机 `config.json` 读取，字段缺失时回退到环境变量。模型 API Key
-的读取优先级为系统钥匙串 > 环境变量 > 未配置：
+| 服务商 | 默认协议 | API Key 环境变量 |
+| --- | --- | --- |
+| OpenAI | Responses / Chat Completions | `OPENAI_API_KEY` |
+| Azure OpenAI | Responses / Chat Completions | `AZURE_OPENAI_API_KEY` |
+| Google Gemini | Gemini | `GEMINI_API_KEY`、`GOOGLE_API_KEY` |
+| Anthropic | Anthropic Messages | `ANTHROPIC_API_KEY` |
+| DeepSeek | Chat Completions | `DEEPSEEK_API_KEY` |
+| OpenRouter | Chat Completions / Anthropic Messages | `OPENROUTER_API_KEY` |
+| xAI | Responses | `XAI_API_KEY` |
+| 自定义 | Responses / Chat Completions | `OPENAI_API_KEY` |
 
-| 环境变量 | 说明 |
-| --- | --- |
-| `OPENAI_BASE_URL` | OpenAI 兼容接口地址 |
-| `OPENAI_API_KEY` | API Key，只读回退；输入新密钥可覆盖 |
-| `OPENAI_MODEL` | 模型名称 |
-| `MIRA_PROTOCOL` | `responses` 或 `completions` |
+每个模型条目独立保存连接信息和钥匙串密钥。新增模型会自动设为当前模型；
+设置页顶部下拉框可随时切换。删除当前模型后会自动启用剩余的第一项。API Key
+优先从系统钥匙串读取，其次回退到对应服务商的环境变量；本地无鉴权服务可以
+留空。前端只返回 `keychain` / `environment` / `session` / `none` 四种存储
+状态，不返回密钥本身。
+
+没有 `config.json` 时，`OPENAI_BASE_URL`、`OPENAI_API_KEY`、`OPENAI_MODEL`
+和 `MIRA_PROTOCOL` 可生成一个默认 OpenAI 模型。已有 schema v2 配置时，各
+服务商环境变量只作为对应模型缺失密钥时的回退，不会覆盖已保存的钥匙串密钥。
+
+`config.json` 使用 schema v2：
+
+```json
+{
+  "schemaVersion": 2,
+  "models": [
+    {
+      "id": "abc123",
+      "name": "主力模型",
+      "provider": "openai",
+      "baseUrl": "https://api.openai.com/v1",
+      "model": "gpt-5",
+      "protocol": "responses"
+    }
+  ],
+  "activeModelId": "abc123"
+}
+```
+
+旧版单模型配置中的 `baseUrl`、`model` 和 `protocol` 会在读取时迁移为
+`id: "default"` 的模型条目。每模型密钥的钥匙串键为 `model-api-key:<id>`，
+并兼容旧的 `model-api-key`。
 
 配置文件权限为 `0600`，保存时使用临时文件加原子替换。前端返回的设置视图不
-包含密钥，只返回 `keychain` / `environment` / `session` / `none` 四种存储状态。
-环境变量提供的密钥不会写入钥匙串，也不能在设置中清除。
+包含密钥。环境变量提供的密钥不会写入钥匙串，也不能在设置中清除。
 
 系统钥匙串通过 MyGo `Secrets` 访问。Linux 需要可用的 Secret Service
 （如 GNOME Keyring 或 KWallet）和会话总线；不可用时界面会明确提示密钥仅保存在
@@ -136,7 +168,7 @@ Markdown 中重复。
 主要文件：
 
 ```text
-config.json                  # 模型与界面设置，不含密钥（权限 0600）
+config.json                  # schema v2 多模型与界面设置，不含密钥（权限 0600）
 conversations/index.json     # 会话索引
 conversations/<id>.jsonl     # 每个会话的消息、用量
 conversations/projects.json  # 项目分类，按创建时间排列

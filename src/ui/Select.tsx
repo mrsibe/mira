@@ -11,6 +11,7 @@ export type SelectOption<T extends string> = {
 };
 
 type SelectProps<T extends string> = {
+  id?: string;
   label: string;
   value: T;
   options: ReadonlyArray<SelectOption<T>>;
@@ -20,6 +21,7 @@ type SelectProps<T extends string> = {
 };
 
 export function Select<T extends string>({
+  id,
   label,
   value,
   options,
@@ -44,6 +46,7 @@ export function Select<T extends string>({
   return (
     <>
       <button
+        id={id}
         type="button"
         className={cx("select-trigger", className)}
         aria-label={label}

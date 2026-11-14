@@ -1,5 +1,5 @@
 import { type FormEvent, useEffect, useId, useRef, useState } from "react";
-import { Button, Modal, Notice } from "../ui";
+import { Button, Input, Modal, Notice } from "../ui";
 
 type ProjectDialogProps = {
   title: string;
@@ -63,7 +63,7 @@ export function ProjectDialog({
           <label className="sr-only" htmlFor={inputID}>
             项目名称
           </label>
-          <input
+          <Input
             ref={inputRef}
             id={inputID}
             value={name}

@@ -310,7 +310,7 @@ func TestSummaryPromptUsesFourMemorySections(t *testing.T) {
 	}
 	if _, err := manager.Regenerate(
 		context.Background(),
-		config.Settings{MemoryEnabled: true, MemorySummaryEnabled: true},
+		config.Settings{Model: "test-model", MemoryEnabled: true, MemorySummaryEnabled: true},
 	); err != nil {
 		t.Fatal(err)
 	}
@@ -386,7 +386,7 @@ func TestObserveUserTurnStartsSummaryAtThreshold(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	settings := config.Settings{MemoryEnabled: true, MemorySummaryEnabled: true}
+	settings := config.Settings{Model: "test-model", MemoryEnabled: true, MemorySummaryEnabled: true}
 
 	for range SummaryThreshold - 1 {
 		manager.ObserveUserTurn(settings)
@@ -466,7 +466,7 @@ func TestSummaryFailureKeepsOldSummary(t *testing.T) {
 
 	if _, err := manager.Regenerate(
 		context.Background(),
-		config.Settings{MemoryEnabled: true, MemorySummaryEnabled: true},
+		config.Settings{Model: "test-model", MemoryEnabled: true, MemorySummaryEnabled: true},
 	); err == nil {
 		t.Fatal("expected summary generation to fail")
 	}
@@ -502,7 +502,7 @@ func TestMaybeStartBackfillsEmptyMemoryOnce(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	settings := config.Settings{MemoryEnabled: true, MemorySummaryEnabled: true}
+	settings := config.Settings{Model: "test-model", MemoryEnabled: true, MemorySummaryEnabled: true}
 	manager.MaybeStart(settings)
 	waitFor(t, 2*time.Second, func() bool {
 		return manager.Get().Summary != "" && !manager.Get().Running
