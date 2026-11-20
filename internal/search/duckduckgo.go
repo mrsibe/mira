@@ -12,6 +12,9 @@ import (
 	"strings"
 
 	xhtml "golang.org/x/net/html"
+
+	"github.com/mrsibe/mira/internal/localerr"
+	"github.com/mrsibe/mira/locales"
 )
 
 const (
@@ -21,8 +24,8 @@ const (
 )
 
 var (
-	errDuckDuckGoBlocked = errors.New("DuckDuckGo 网页搜索可能触发了人机验证")
-	errDuckDuckGoEmpty   = errors.New("DuckDuckGo 没有返回搜索结果")
+	errDuckDuckGoBlocked = localerr.New(locales.ErrDuckDuckGoBlocked)
+	errDuckDuckGoEmpty   = localerr.New(locales.ErrDuckDuckGoEmpty)
 )
 
 // DuckDuckGoProvider uses the public HTML endpoint first and falls back to the
@@ -42,7 +45,7 @@ func (p *DuckDuckGoProvider) Name() string { return "DuckDuckGo" }
 func (p *DuckDuckGoProvider) Search(ctx context.Context, query string, limit int) ([]Result, error) {
 	query = strings.TrimSpace(query)
 	if query == "" {
-		return nil, ErrEmptyQuery
+		return nil, errors.New(locales.ErrSearchEmptyQuery())
 	}
 	limit = normalizeLimit(limit)
 	ctx, cancel := withRequestTimeout(ctx)
@@ -67,15 +70,9 @@ func (p *DuckDuckGoProvider) Search(ctx context.Context, query string, limit int
 		instantErr = errDuckDuckGoEmpty
 	}
 	if errors.Is(htmlErr, errDuckDuckGoBlocked) {
-		return nil, fmt.Errorf(
-			"DuckDuckGo 可能触发了人机验证，Instant Answer 也没有返回结果；可在设置中改用 Tavily（%v）",
-			instantErr,
-		)
+		return nil, errors.New(locales.ErrDuckDuckGoBotCheck(instantErr.Error()))
 	}
-	return nil, fmt.Errorf(
-		"DuckDuckGo 没有返回可用结果；可在设置中改用 Tavily（%v）",
-		instantErr,
-	)
+	return nil, errors.New(locales.ErrDuckDuckGoNoResults(instantErr.Error()))
 }
 
 func (p *DuckDuckGoProvider) searchHTML(ctx context.Context, query string, limit int) ([]Result, error) {
@@ -97,7 +94,7 @@ func (p *DuckDuckGoProvider) searchHTML(ctx context.Context, query string, limit
 	}
 	request.Header.Set("User-Agent", userAgent)
 	request.Header.Set("Accept", "text/html,application/xhtml+xml")
-	request.Header.Set("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8")
+	request.Header.Set("Accept-Language", acceptLanguage())
 
 	response, err := p.client.Do(request)
 	if err != nil {
@@ -304,7 +301,7 @@ func (p *DuckDuckGoProvider) searchInstant(ctx context.Context, query string, li
 	}
 	request.Header.Set("User-Agent", userAgent)
 	request.Header.Set("Accept", "application/json")
-	request.Header.Set("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8")
+	request.Header.Set("Accept-Language", acceptLanguage())
 
 	response, err := p.client.Do(request)
 	if err != nil {

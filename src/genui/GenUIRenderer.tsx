@@ -18,6 +18,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { useMessages } from "../i18n";
 import { genUICatalog } from "./catalog";
 import { createGenUIRegistry } from "./registry";
 import { loadUIState, saveUIState } from "./storage";
@@ -37,7 +38,8 @@ function GenUIRendererComponent({
   storageKey = "",
   onAskAgent,
 }: GenUIRendererProps) {
-  const validation = useMemo(() => validateGenUI(spec, complete), [spec, complete]);
+  const t = useMessages();
+  const validation = useMemo(() => validateGenUI(spec, complete, t), [spec, complete, t]);
   const [store] = useState<StateStore>(() =>
     createStateStore(loadUIState(storageKey, spec.state ?? {})),
   );
@@ -60,13 +62,13 @@ function GenUIRendererComponent({
   if (!validation.valid) {
     return (
       <div className="genui-failure" role="status">
-        界面暂时无法显示：{validation.message}
+        {t.genuiRenderUnavailable(validation.message)}
       </div>
     );
   }
 
   return (
-    <GenUIErrorBoundary>
+    <GenUIErrorBoundary messages={t}>
       <div className="genui" data-loading={loading ? "true" : undefined}>
         <StateProvider store={store}>
           <VisibilityProvider>
@@ -126,27 +128,29 @@ function usePersistedState(store: StateStore, storageKey: string) {
   }, [store, storageKey]);
 }
 
-function validateGenUI(spec: Spec, complete: boolean) {
+function validateGenUI(spec: Spec, complete: boolean, t: ReturnType<typeof useMessages>) {
   if (!complete) return { valid: true, message: "" };
   const structural = validateSpec(spec, { checkOrphans: true });
   if (!structural.valid) {
     const issue = structural.issues.find((item) => item.severity === "error");
-    return { valid: false, message: issue?.message ?? "界面结构不完整。" };
+    return { valid: false, message: issue?.message ?? t.genuiInvalidStructure() };
   }
   const catalog = genUICatalog.validate(spec);
   if (!catalog.success) {
     const issue = catalog.error?.issues[0];
-    return { valid: false, message: issue?.message ?? "组件参数不符合约定。" };
+    return { valid: false, message: issue?.message ?? t.genuiInvalidProps() };
   }
   return { valid: true, message: "" };
 }
 
-const UnknownComponent: ComponentRenderer = ({ element }) => (
-  <div className="genui-unknown">无法显示组件 {element.type}</div>
-);
+const UnknownComponent: ComponentRenderer = ({ element }) => {
+  const t = useMessages();
+  return <div className="genui-unknown">{t.genuiUnknownComponent(element.type)}</div>;
+};
 
 type BoundaryProps = {
   children: ReactNode;
+  messages: ReturnType<typeof useMessages>;
 };
 
 type BoundaryState = {
@@ -170,7 +174,7 @@ class GenUIErrorBoundary extends Component<BoundaryProps, BoundaryState> {
     if (!this.state.error) return this.props.children;
     return (
       <div className="genui-failure" role="status">
-        界面暂时无法显示，回答内容不受影响。
+        {this.props.messages.genuiRenderFailed()}
       </div>
     );
   }

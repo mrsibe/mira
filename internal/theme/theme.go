@@ -3,7 +3,8 @@ package theme
 
 import (
 	"errors"
-	"fmt"
+
+	"github.com/mrsibe/mira/locales"
 )
 
 // ApplyFunc applies a validated appearance mode.
@@ -24,10 +25,10 @@ func (s *Service) SetTheme(mode string) error {
 	switch mode {
 	case "system", "light", "dark":
 	default:
-		return fmt.Errorf("不支持的主题: %q", mode)
+		return errors.New(locales.ErrUnsupportedTheme(mode))
 	}
 	if s.apply == nil {
-		return errors.New("原生主题服务未初始化")
+		return errors.New(locales.ErrNativeThemeUnavailable())
 	}
 	return s.apply(mode)
 }

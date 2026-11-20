@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/egoist/mygo/i18n"
 )
 
 type fakeSecretStore struct {
@@ -702,4 +704,17 @@ func clearConfigEnv(t *testing.T) {
 
 func stringPointer(value string) *string {
 	return &value
+}
+
+func TestValidationErrorsFollowLocale(t *testing.T) {
+	i18n.SetLocaleFunc(func() string { return "en" })
+	t.Cleanup(func() { i18n.SetLocaleFunc(nil) })
+
+	err := validate(Settings{SearchProvider: "unknown"})
+	if err == nil {
+		t.Fatal("expected an unsupported provider error")
+	}
+	if !strings.Contains(err.Error(), "Unsupported search provider") {
+		t.Fatalf("error = %q, want English", err)
+	}
 }

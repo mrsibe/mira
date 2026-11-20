@@ -1,8 +1,11 @@
 import { useEffect, useState } from "react";
+import { useLocale, useMessages } from "../../i18n";
 import { MiraUpdate, type UpdateStatus } from "../../mygo";
 import { Button, Notice, Switch } from "../../ui";
 
 export function AboutSettings() {
+  const t = useMessages();
+  const locale = useLocale();
   const [status, setStatus] = useState<UpdateStatus | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -19,7 +22,9 @@ export function AboutSettings() {
         }
       } catch (refreshError) {
         if (active) {
-          setError(refreshError instanceof Error ? refreshError.message : "无法读取更新状态");
+          setError(
+            refreshError instanceof Error ? refreshError.message : t.aboutUpdateStatusFailed(),
+          );
         }
       }
     }
@@ -30,7 +35,7 @@ export function AboutSettings() {
       active = false;
       window.clearInterval(timer);
     };
-  }, []);
+  }, [t.aboutUpdateStatusFailed]);
 
   async function toggleAutomaticChecks() {
     if (!status || busy) return;
@@ -39,7 +44,7 @@ export function AboutSettings() {
     try {
       setStatus(await MiraUpdate.setAutomaticChecks(!status.automaticChecks));
     } catch (updateError) {
-      setError(updateError instanceof Error ? updateError.message : "无法修改更新设置");
+      setError(updateError instanceof Error ? updateError.message : t.aboutUpdateSettingsFailed());
     } finally {
       setBusy(false);
     }
@@ -50,24 +55,24 @@ export function AboutSettings() {
     try {
       await MiraUpdate.checkForUpdates();
     } catch (checkError) {
-      setError(checkError instanceof Error ? checkError.message : "无法检查更新");
+      setError(checkError instanceof Error ? checkError.message : t.aboutCheckFailed());
     }
   }
 
   const version = status?.version || "…";
-  const availability = updateAvailability(status);
+  const availability = updateAvailability(status, t, locale);
 
   return (
     <section className="settings-group">
       <div className="about-heading">
         <strong>Mira</strong>
-        <span>版本 {version}</span>
+        <span>{t.aboutVersion(version)}</span>
       </div>
       <Switch
         checked={status?.automaticChecks ?? false}
         disabled={!status?.enabled || busy}
-        title="自动检查更新"
-        description="启动时检查，安装前确认。"
+        title={t.aboutAutoCheck()}
+        description={t.aboutAutoCheckDescription()}
         onChange={() => void toggleAutomaticChecks()}
       />
 
@@ -77,44 +82,50 @@ export function AboutSettings() {
           <span>{availability.detail}</span>
         </div>
         <Button variant="quiet" onClick={() => void checkForUpdates()} disabled={!status}>
-          {status?.availableVersion ? "更新" : status?.enabled ? "检查" : "查看状态"}
+          {status?.availableVersion
+            ? t.aboutUpdate()
+            : status?.enabled
+              ? t.aboutCheck()
+              : t.aboutViewStatus()}
         </Button>
       </div>
 
-      {status && !status.enabled && (
-        <Notice>当前安装方式不支持自动更新，请从 GitHub Releases 下载新版本。</Notice>
-      )}
+      {status && !status.enabled && <Notice>{t.aboutUnsupported()}</Notice>}
       {error && <Notice tone="error">{error}</Notice>}
     </section>
   );
 }
 
-function updateAvailability(status: UpdateStatus | null) {
+function updateAvailability(
+  status: UpdateStatus | null,
+  t: ReturnType<typeof useMessages>,
+  locale: string,
+) {
   if (!status) {
-    return { title: "正在读取更新信息…", detail: "" };
+    return { title: t.aboutReading(), detail: "" };
   }
   if (status.availableVersion) {
     return {
-      title: `可更新到 ${status.availableVersion}`,
-      detail: status.lastCheck ? `检查于 ${formatCheckTime(status.lastCheck)}` : "",
+      title: t.aboutAvailable(status.availableVersion),
+      detail: status.lastCheck ? t.aboutCheckedAt(formatCheckTime(status.lastCheck, locale)) : "",
     };
   }
   if (status.lastCheck) {
     return {
-      title: "已是最新版本",
-      detail: `检查于 ${formatCheckTime(status.lastCheck)}`,
+      title: t.aboutUpToDate(),
+      detail: t.aboutCheckedAt(formatCheckTime(status.lastCheck, locale)),
     };
   }
   return {
-    title: "尚未检查",
-    detail: status.enabled ? "启动时会自动检查" : "",
+    title: t.aboutNotChecked(),
+    detail: status.enabled ? t.aboutAutoCheckOnStartup() : "",
   };
 }
 
-function formatCheckTime(value: string) {
+function formatCheckTime(value: string, locale: string) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
-  return new Intl.DateTimeFormat("zh-CN", {
+  return new Intl.DateTimeFormat(locale, {
     month: "numeric",
     day: "numeric",
     hour: "2-digit",

@@ -1,5 +1,6 @@
 import { Check, ChevronDown, ChevronUp, Copy, Pencil } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useMessages } from "../../i18n";
 import { messageText } from "../../lib/activity";
 import { copyText } from "../../lib/format";
 import type { UIMessage } from "../../mygo";
@@ -13,6 +14,7 @@ type UserMessageProps = {
 };
 
 export function UserMessage({ message, busy = false, onEdit }: UserMessageProps) {
+  const t = useMessages();
   const bubbleRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<HTMLTextAreaElement>(null);
   const [expanded, setExpanded] = useState(false);
@@ -86,7 +88,7 @@ export function UserMessage({ message, busy = false, onEdit }: UserMessageProps)
               ref={editorRef}
               value={draft}
               rows={1}
-              aria-label="编辑消息"
+              aria-label={t.threadEditMessage()}
               onChange={(event) => setDraft(event.target.value)}
               onKeyDown={(event) => {
                 if (event.key === "Escape") {
@@ -105,18 +107,18 @@ export function UserMessage({ message, busy = false, onEdit }: UserMessageProps)
                 type="button"
                 className="user-editor-cancel"
                 onClick={cancelEditing}
-                title="取消编辑"
+                title={t.threadCancelEdit()}
               >
-                取消
+                {t.commonCancel()}
               </button>
               <button
                 type="button"
                 className="user-editor-save"
                 disabled={!draft.trim() || busy}
                 onClick={submitEditing}
-                title="保存并重新生成后续回答"
+                title={t.threadSaveAndRegenerate()}
               >
-                保存并重新生成
+                {t.threadSaveAndRegenerateShort()}
               </button>
             </div>
           </div>
@@ -135,14 +137,14 @@ export function UserMessage({ message, busy = false, onEdit }: UserMessageProps)
                   onClick={() => setExpanded((value) => !value)}
                 >
                   {expanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-                  {expanded ? "收起" : "显示更多"}
+                  {expanded ? t.threadCollapse() : t.threadShowMore()}
                 </button>
               )}
             </div>
             <div className="user-message-actions">
               <button
                 type="button"
-                title="复制消息"
+                title={t.threadCopyMessage()}
                 onClick={async () => {
                   await copyText(text);
                   setCopied(true);
@@ -150,12 +152,17 @@ export function UserMessage({ message, busy = false, onEdit }: UserMessageProps)
                 }}
               >
                 {copied ? <Check size={14} /> : <Copy size={14} />}
-                <span>{copied ? "已复制" : "复制"}</span>
+                <span>{copied ? t.commonCopied() : t.commonCopy()}</span>
               </button>
               {onEdit && (
-                <button type="button" disabled={busy} onClick={beginEditing} title="编辑消息">
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={beginEditing}
+                  title={t.threadEditMessage()}
+                >
                   <Pencil size={14} />
-                  <span>编辑</span>
+                  <span>{t.commonEdit()}</span>
                 </button>
               )}
             </div>

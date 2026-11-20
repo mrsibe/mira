@@ -1,5 +1,6 @@
 import { RefreshCw, Trash2 } from "lucide-react";
 import { useState } from "react";
+import { useLocale, useMessages } from "../../i18n";
 import type { MemoryView } from "../../mygo";
 import { Button, Field, Switch } from "../../ui";
 import { ConfirmDialog } from "../ConfirmDialog";
@@ -13,6 +14,8 @@ type MemorySettingsProps = {
 };
 
 export function MemorySettings({ draft, setField, editor }: MemorySettingsProps) {
+  const t = useMessages();
+  const locale = useLocale();
   const [confirmClear, setConfirmClear] = useState(false);
 
   return (
@@ -20,22 +23,22 @@ export function MemorySettings({ draft, setField, editor }: MemorySettingsProps)
       <section className="settings-switches">
         <Switch
           checked={draft.memoryEnabled}
-          title="启用记忆"
-          description="参考历史对话和长期信息。"
+          title={t.memoryEnableTitle()}
+          description={t.memoryEnableDescription()}
           onChange={() => setField("memoryEnabled", !draft.memoryEnabled)}
         />
         {draft.memoryEnabled && (
           <>
             <Switch
               checked={draft.memorySummaryEnabled}
-              title="自动摘要"
-              description="每 8 条消息整理一次。"
+              title={t.memorySummaryTitle()}
+              description={t.memorySummaryDescription()}
               onChange={() => setField("memorySummaryEnabled", !draft.memorySummaryEnabled)}
             />
             <Switch
               checked={draft.memorySearchEnabled}
-              title="历史搜索"
-              description="需要时检索其他对话。"
+              title={t.memorySearchTitle()}
+              description={t.memorySearchDescription()}
               onChange={() => setField("memorySearchEnabled", !draft.memorySearchEnabled)}
             />
           </>
@@ -48,8 +51,9 @@ export function MemorySettings({ draft, setField, editor }: MemorySettingsProps)
             <>
               <div className="memory-status-row">
                 <span>
-                  {memoryStatusTitle(editor.memory, editor.action)}
-                  {memoryStatusDetail(editor.memory) && ` · ${memoryStatusDetail(editor.memory)}`}
+                  {memoryStatusTitle(editor.memory, editor.action, t)}
+                  {memoryStatusDetail(editor.memory, locale, t) &&
+                    ` · ${memoryStatusDetail(editor.memory, locale, t)}`}
                 </span>
                 <Button
                   variant="quiet"
@@ -57,13 +61,13 @@ export function MemorySettings({ draft, setField, editor }: MemorySettingsProps)
                   onClick={() => void editor.regenerate()}
                 >
                   <RefreshCw size={14} className={editor.action ? "spin" : undefined} />
-                  {editor.action ? "更新中…" : "更新"}
+                  {editor.action ? t.memoryUpdating() : t.memoryUpdate()}
                 </Button>
               </div>
               {editor.memory?.lastError && (
-                <p className="form-error">摘要更新失败：{editor.memory.lastError}</p>
+                <p className="form-error">{t.memoryUpdateFailed(editor.memory.lastError)}</p>
               )}
-              <Field label="当前摘要">
+              <Field label={t.memoryCurrentSummary()}>
                 {(id) => (
                   <textarea
                     id={id}
@@ -76,7 +80,7 @@ export function MemorySettings({ draft, setField, editor }: MemorySettingsProps)
                       editor.setSummaryDraft(event.target.value);
                       editor.markDirty();
                     }}
-                    placeholder="由最近对话自动生成"
+                    placeholder={t.memorySummaryPlaceholder()}
                   />
                 )}
               </Field>
@@ -85,9 +89,9 @@ export function MemorySettings({ draft, setField, editor }: MemorySettingsProps)
 
           {editor.conflict && (
             <p className="settings-description">
-              记忆已在后台更新。
+              {t.memoryChangedInBackground()}
               <button type="button" className="inline-link" onClick={() => void editor.reload()}>
-                载入最新
+                {t.memoryLoadLatest()}
               </button>
             </p>
           )}
@@ -99,16 +103,16 @@ export function MemorySettings({ draft, setField, editor }: MemorySettingsProps)
             onClick={() => setConfirmClear(true)}
           >
             <Trash2 size={14} />
-            清空记忆
+            {t.memoryClear()}
           </Button>
         </section>
       )}
 
       {confirmClear && (
         <ConfirmDialog
-          title="清空记忆？"
-          message="自动摘要会被删除，下一次自动更新会从空的记忆开始。"
-          confirmLabel="清空"
+          title={t.memoryClearTitle()}
+          message={t.memoryClearMessage()}
+          confirmLabel={t.memoryClearConfirm()}
           onConfirm={() => {
             setConfirmClear(false);
             void editor.clear();
@@ -120,25 +124,36 @@ export function MemorySettings({ draft, setField, editor }: MemorySettingsProps)
   );
 }
 
-function memoryStatusTitle(memory: MemoryView | null, action: boolean) {
-  if (action || memory?.running) return "正在更新…";
-  if (!memory) return "正在读取记忆…";
-  if (memory.pendingUserTurns >= memory.summaryThreshold) return "等待更新";
-  return memory.summary ? "摘要已就绪" : "尚未生成";
+function memoryStatusTitle(
+  memory: MemoryView | null,
+  action: boolean,
+  t: ReturnType<typeof useMessages>,
+) {
+  if (action || memory?.running) return t.memoryStatusUpdating();
+  if (!memory) return t.memoryStatusReading();
+  if (memory.pendingUserTurns >= memory.summaryThreshold) return t.memoryStatusPending();
+  return memory.summary ? t.memoryStatusReady() : t.memoryStatusEmpty();
 }
 
-function memoryStatusDetail(memory: MemoryView | null) {
+function memoryStatusDetail(
+  memory: MemoryView | null,
+  locale: string,
+  t: ReturnType<typeof useMessages>,
+) {
   if (!memory) return "";
   if (memory.pendingUserTurns > 0) {
-    return `待处理 ${Math.min(memory.pendingUserTurns, memory.summaryThreshold)} / ${memory.summaryThreshold}`;
+    return t.memoryStatusPendingDetail(
+      Math.min(memory.pendingUserTurns, memory.summaryThreshold),
+      memory.summaryThreshold,
+    );
   }
-  return memory.updatedAt ? `更新于 ${formatTimestamp(memory.updatedAt)}` : "";
+  return memory.updatedAt ? t.memoryStatusUpdatedAt(formatTimestamp(memory.updatedAt, locale)) : "";
 }
 
-function formatTimestamp(value: string) {
+function formatTimestamp(value: string, locale: string) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
-  return new Intl.DateTimeFormat("zh-CN", {
+  return new Intl.DateTimeFormat(locale, {
     month: "numeric",
     day: "numeric",
     hour: "2-digit",

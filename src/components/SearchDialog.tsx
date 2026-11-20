@@ -1,5 +1,6 @@
 import { Search, X } from "lucide-react";
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { useMessages } from "../i18n";
 import type { Conversation, Project, SearchResult } from "../mygo";
 import { IconButton, Modal } from "../ui";
 
@@ -18,6 +19,7 @@ export function SearchDialog({
   onSelect,
   onClose,
 }: SearchDialogProps) {
+  const t = useMessages();
   const inputRef = useRef<HTMLInputElement>(null);
   const [query, setQuery] = useState("");
   const [remoteResults, setRemoteResults] = useState<SearchResult[]>([]);
@@ -73,7 +75,7 @@ export function SearchDialog({
         })
         .catch((searchError: unknown) => {
           if (cancelled) return;
-          setError(searchError instanceof Error ? searchError.message : "搜索失败");
+          setError(searchError instanceof Error ? searchError.message : t.searchFailed());
         })
         .finally(() => {
           if (!cancelled) setLoading(false);
@@ -84,7 +86,7 @@ export function SearchDialog({
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [onSearch, query]);
+  }, [onSearch, query, t.searchFailed]);
 
   function select(result: SearchResult) {
     onSelect(result.conversation.id, result.messageIndex);
@@ -92,15 +94,15 @@ export function SearchDialog({
   }
 
   return (
-    <Modal className="search-modal" label="搜索对话" onClose={onClose}>
+    <Modal className="search-modal" label={t.searchConversations()} onClose={onClose}>
       <div className="search-dialog-head">
         <Search size={18} aria-hidden="true" />
         <input
           ref={inputRef}
           type="search"
           value={query}
-          aria-label="搜索对话"
-          placeholder="搜索对话内容"
+          aria-label={t.searchConversations()}
+          placeholder={t.searchPlaceholder()}
           onChange={(event) => setQuery(event.target.value)}
           onKeyDown={(event) => {
             if (event.nativeEvent.isComposing) return;
@@ -111,7 +113,11 @@ export function SearchDialog({
           }}
         />
         {query ? (
-          <IconButton label="清除搜索" className="search-dialog-clear" onClick={() => setQuery("")}>
+          <IconButton
+            label={t.searchClear()}
+            className="search-dialog-clear"
+            onClick={() => setQuery("")}
+          >
             <X size={16} />
           </IconButton>
         ) : (
@@ -122,9 +128,9 @@ export function SearchDialog({
       </div>
 
       <div className="search-dialog-body">
-        <h2 className="search-dialog-label">{searching ? "搜索结果" : "最近对话"}</h2>
+        <h2 className="search-dialog-label">{searching ? t.searchResults() : t.searchRecent()}</h2>
         {loading ? (
-          <p className="search-dialog-empty">正在搜索…</p>
+          <p className="search-dialog-empty">{t.searchSearching()}</p>
         ) : error ? (
           <p className="search-dialog-empty">{error}</p>
         ) : results.length > 0 ? (
@@ -140,15 +146,15 @@ export function SearchDialog({
                   key={conversation.id}
                   type="button"
                   className="search-result"
-                  aria-label={`打开“${conversation.title}”`}
+                  aria-label={t.searchOpen(conversation.title)}
                   onClick={() => select(result)}
                 >
                   <span className="search-result-copy">
                     <span className="search-result-title">{conversation.title}</span>
                     {snippet && (
                       <span className="search-result-snippet">
-                        {roleLabel(result.role) && (
-                          <span className="search-result-role">{roleLabel(result.role)}</span>
+                        {roleLabel(result.role, t) && (
+                          <span className="search-result-role">{roleLabel(result.role, t)}</span>
                         )}
                         <span className="search-result-snippet-text">
                           {highlight(snippet, searching ? query : "")}
@@ -158,7 +164,9 @@ export function SearchDialog({
                   </span>
                   <span className="search-result-meta">
                     {(result.matchCount ?? 0) > 1 && (
-                      <span className="search-result-matches">{result.matchCount} 条</span>
+                      <span className="search-result-matches">
+                        {t.searchMatchCount(result.matchCount ?? 0)}
+                      </span>
                     )}
                     {projectName && <span className="search-result-project">{projectName}</span>}
                   </span>
@@ -167,15 +175,17 @@ export function SearchDialog({
             })}
           </div>
         ) : (
-          <p className="search-dialog-empty">{searching ? "没有匹配的对话" : "还没有对话"}</p>
+          <p className="search-dialog-empty">
+            {searching ? t.searchNoMatch() : t.searchNoConversations()}
+          </p>
         )}
       </div>
     </Modal>
   );
 }
 
-function roleLabel(role: string | undefined) {
-  if (role === "user") return "你";
+function roleLabel(role: string | undefined, t: ReturnType<typeof useMessages>) {
+  if (role === "user") return t.threadRoleYou();
   if (role === "assistant") return "Mira";
   return "";
 }

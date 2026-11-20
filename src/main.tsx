@@ -1,6 +1,7 @@
 import { createRoot } from "react-dom/client";
 import App from "./App";
 import { ErrorBoundary } from "./components/ErrorBoundary";
+import { I18nProvider } from "./i18n";
 import { applyStoredAppearance } from "./lib/appearance";
 import { applyStoredSidebarWidth } from "./lib/sidebarWidth";
 
@@ -14,6 +15,8 @@ if (!root) {
 
 createRoot(root).render(
   <ErrorBoundary>
-    <App />
+    <I18nProvider>
+      <App />
+    </I18nProvider>
   </ErrorBoundary>,
 );

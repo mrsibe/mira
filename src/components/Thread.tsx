@@ -1,7 +1,8 @@
 import { ArrowDown } from "lucide-react";
 import { useMemo } from "react";
+import { useMessages } from "../i18n";
 import { collectToolResults, groupMessages, sumUsage } from "../lib/activity";
-import { formatCount, usageDetails } from "../lib/format";
+import { usageDetails } from "../lib/format";
 import type { RunView } from "../lib/types";
 import type { UIMessage } from "../mygo";
 import { CompletedTurn, LiveTurn } from "./thread/AssistantTurn";
@@ -33,6 +34,7 @@ export function Thread({
   onRegenerate,
   onFork,
 }: ThreadProps) {
+  const t = useMessages();
   const {
     scrollRef,
     spacerRef,
@@ -55,7 +57,7 @@ export function Thread({
       <section
         ref={scrollRef}
         className="thread-scroll"
-        aria-label="对话内容"
+        aria-label={t.threadContent()}
         onScroll={onScroll}
         onWheel={onWheel}
         onTouchStart={onTouchStart}
@@ -99,15 +101,20 @@ export function Thread({
             />
           )}
           {totalUsage.totalTokens > 0 && (
-            <div className="thread-usage" title={usageDetails(totalUsage)}>
-              本对话共 {formatCount(totalUsage.totalTokens)} tokens
+            <div className="thread-usage" title={usageDetails(totalUsage, t)}>
+              {t.threadUsageTotal(totalUsage.totalTokens)}
             </div>
           )}
           <div ref={spacerRef} className="thread-anchor-spacer" aria-hidden="true" />
         </div>
       </section>
       {!nearBottom && (
-        <button type="button" className="jump-bottom" onClick={jumpToBottom} title="回到底部">
+        <button
+          type="button"
+          className="jump-bottom"
+          onClick={jumpToBottom}
+          title={t.threadJumpBottom()}
+        >
           <ArrowDown size={16} />
         </button>
       )}

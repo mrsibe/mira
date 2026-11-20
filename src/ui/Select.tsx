@@ -1,5 +1,6 @@
 import { Check, ChevronDown } from "lucide-react";
 import { Fragment, type KeyboardEvent, useCallback, useState } from "react";
+import { useMessages } from "../i18n";
 import { cx } from "./cx";
 import { PopupMenu } from "./PopupMenu";
 
@@ -29,6 +30,7 @@ export function Select<T extends string>({
   className,
   disabled,
 }: SelectProps<T>) {
+  const messages = useMessages();
   const [anchor, setAnchor] = useState<HTMLButtonElement | null>(null);
   const selected = options.find((option) => option.value === value);
 
@@ -56,7 +58,7 @@ export function Select<T extends string>({
         onClick={(event) => setAnchor(anchor ? null : event.currentTarget)}
         onKeyDown={onKeyDown}
       >
-        <span>{selected?.label ?? "选择"}</span>
+        <span>{selected?.label ?? messages.commonSelect()}</span>
         <ChevronDown size={15} aria-hidden="true" />
       </button>
       {anchor && (

@@ -9,6 +9,8 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	"github.com/mrsibe/mira/locales"
 )
 
 const (
@@ -95,11 +97,11 @@ func Providers() []ProviderInfo {
 		{
 			ID:                ProviderOpenAI,
 			Label:             "OpenAI",
-			Description:       "OpenAI 官方 Responses 或 Chat Completions 接口",
+			Description:       locales.ProviderOpenAIDescription(),
 			DefaultBaseURL:    DefaultBaseURL,
 			BaseURLHint:       DefaultBaseURL,
 			DefaultModel:      DefaultModel,
-			ModelLabel:        "模型",
+			ModelLabel:        locales.ProviderModelLabel(),
 			DefaultProtocol:   ProtocolResponses,
 			Protocols:         protocolList(ProtocolResponses, ProtocolCompletions),
 			RequiresAPIKey:    true,
@@ -109,9 +111,9 @@ func Providers() []ProviderInfo {
 		{
 			ID:              ProviderAzure,
 			Label:           "Azure OpenAI",
-			Description:     "Azure OpenAI v1 Endpoint，模型字段填写部署名称",
+			Description:     locales.ProviderAzureDescription(),
 			BaseURLHint:     "https://<resource>.openai.azure.com/openai/v1",
-			ModelLabel:      "部署名称",
+			ModelLabel:      locales.ProviderAzureModelLabel(),
 			DefaultProtocol: ProtocolResponses,
 			Protocols:       protocolList(ProtocolResponses, ProtocolCompletions),
 			RequiresBaseURL: true,
@@ -121,10 +123,10 @@ func Providers() []ProviderInfo {
 		{
 			ID:              ProviderGoogle,
 			Label:           "Google Gemini",
-			Description:     "Google Gemini 原生接口",
-			BaseURLHint:     "留空使用 Gemini 官方端点",
+			Description:     locales.ProviderGoogleDescription(),
+			BaseURLHint:     locales.ProviderGoogleBaseURLHint(),
 			DefaultModel:    "gemini-3-flash",
-			ModelLabel:      "模型",
+			ModelLabel:      locales.ProviderModelLabel(),
 			DefaultProtocol: ProtocolGoogle,
 			Protocols:       protocolList(ProtocolGoogle),
 			RequiresAPIKey:  true,
@@ -133,11 +135,11 @@ func Providers() []ProviderInfo {
 		{
 			ID:              ProviderAnthropic,
 			Label:           "Anthropic",
-			Description:     "Anthropic Messages 原生接口",
+			Description:     locales.ProviderAnthropicDescription(),
 			DefaultBaseURL:  "https://api.anthropic.com",
 			BaseURLHint:     "https://api.anthropic.com",
 			DefaultModel:    "claude-sonnet-5-5",
-			ModelLabel:      "模型",
+			ModelLabel:      locales.ProviderModelLabel(),
 			DefaultProtocol: ProtocolAnthropic,
 			Protocols:       protocolList(ProtocolAnthropic),
 			RequiresAPIKey:  true,
@@ -146,11 +148,11 @@ func Providers() []ProviderInfo {
 		{
 			ID:              ProviderDeepSeek,
 			Label:           "DeepSeek",
-			Description:     "DeepSeek Chat Completions，支持 reasoning 回放",
+			Description:     locales.ProviderDeepSeekDescription(),
 			DefaultBaseURL:  "https://api.deepseek.com",
 			BaseURLHint:     "https://api.deepseek.com",
 			DefaultModel:    "deepseek-reasoner",
-			ModelLabel:      "模型",
+			ModelLabel:      locales.ProviderModelLabel(),
 			DefaultProtocol: ProtocolCompletions,
 			Protocols:       protocolList(ProtocolCompletions),
 			RequiresAPIKey:  true,
@@ -159,11 +161,11 @@ func Providers() []ProviderInfo {
 		{
 			ID:              ProviderOpenRouter,
 			Label:           "OpenRouter",
-			Description:     "OpenRouter Chat Completions 或 Anthropic Messages",
+			Description:     locales.ProviderOpenRouterDescription(),
 			DefaultBaseURL:  "https://openrouter.ai/api/v1",
 			BaseURLHint:     "https://openrouter.ai/api/v1",
 			DefaultModel:    "anthropic/claude-sonnet-4",
-			ModelLabel:      "模型",
+			ModelLabel:      locales.ProviderModelLabel(),
 			DefaultProtocol: ProtocolCompletions,
 			Protocols:       protocolList(ProtocolCompletions, ProtocolMessages),
 			RequiresAPIKey:  true,
@@ -172,11 +174,11 @@ func Providers() []ProviderInfo {
 		{
 			ID:              ProviderXAI,
 			Label:           "xAI",
-			Description:     "xAI Responses 接口",
+			Description:     locales.ProviderXAIDescription(),
 			DefaultBaseURL:  "https://api.x.ai/v1",
 			BaseURLHint:     "https://api.x.ai/v1",
 			DefaultModel:    "grok-4",
-			ModelLabel:      "模型",
+			ModelLabel:      locales.ProviderModelLabel(),
 			DefaultProtocol: ProtocolResponses,
 			Protocols:       protocolList(ProtocolResponses),
 			RequiresAPIKey:  true,
@@ -184,10 +186,10 @@ func Providers() []ProviderInfo {
 		},
 		{
 			ID:                ProviderCustom,
-			Label:             "自定义",
-			Description:       "任意 OpenAI 兼容 Responses 或 Chat Completions 端点",
+			Label:             locales.ProviderCustomLabel(),
+			Description:       locales.ProviderCustomDescription(),
 			BaseURLHint:       "https://example.com/v1",
-			ModelLabel:        "模型",
+			ModelLabel:        locales.ProviderModelLabel(),
 			DefaultProtocol:   ProtocolCompletions,
 			Protocols:         protocolList(ProtocolResponses, ProtocolCompletions),
 			RequiresBaseURL:   true,
@@ -292,25 +294,25 @@ func normalizeModel(model ModelConfig) ModelConfig {
 func validateModel(model ModelConfig) error {
 	info, ok := providerInfo(model.Provider)
 	if !ok {
-		return fmt.Errorf("不支持的服务商: %q", model.Provider)
+		return errors.New(locales.ErrUnsupportedProvider(model.Provider))
 	}
 	if strings.TrimSpace(model.Model) == "" {
 		label := info.ModelLabel
 		if label == "" {
-			label = "模型名称"
+			label = locales.ProviderModelLabel()
 		}
-		return fmt.Errorf("%s不能为空", label)
+		return errors.New(locales.ErrProviderFieldRequired(label))
 	}
 	if info.RequiresBaseURL && strings.TrimSpace(model.BaseURL) == "" {
-		return errors.New("Base URL 不能为空")
+		return errors.New(locales.ErrBaseURLRequired())
 	}
 	if model.BaseURL != "" {
 		parsed, err := url.Parse(model.BaseURL)
 		if err != nil || parsed.Host == "" {
-			return fmt.Errorf("Base URL 无效: %q", model.BaseURL)
+			return errors.New(locales.ErrBaseURLInvalid(model.BaseURL))
 		}
 		if parsed.Scheme != "http" && parsed.Scheme != "https" {
-			return errors.New("Base URL 必须使用 http 或 https")
+			return errors.New(locales.ErrBaseURLScheme())
 		}
 	}
 	for _, option := range info.Protocols {
@@ -318,7 +320,7 @@ func validateModel(model ModelConfig) error {
 			return nil
 		}
 	}
-	return fmt.Errorf("不支持的 API 协议: %q", model.Protocol)
+	return errors.New(locales.ErrUnsupportedProtocol(model.Protocol))
 }
 
 func modelConfigured(model ModelConfig, apiKey string) bool {

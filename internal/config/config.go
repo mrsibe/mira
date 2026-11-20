@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+
+	"github.com/mrsibe/mira/locales"
 )
 
 const (
@@ -309,7 +311,7 @@ func legacyModel(legacy legacyModelFields) ModelConfig {
 
 func (m *Manager) loadSecrets() {
 	if m.secrets == nil {
-		m.markKeychainUnavailable(errors.New("系统钥匙串不可用"))
+		m.markKeychainUnavailable(errors.New(locales.ErrKeychainUnavailable()))
 	} else {
 		for _, model := range m.settings.Models {
 			key, storage := "", KeyStorageNone
@@ -472,7 +474,7 @@ func (m *Manager) AddModel(input ModelInput) (View, error) {
 		return m.viewLocked(), err
 	}
 	if modelNeedsKey(model) && apiKey == "" {
-		return m.viewLocked(), errors.New("请填写 API Key")
+		return m.viewLocked(), errors.New(locales.ErrAPIKeyRequired())
 	}
 	model.ID = newModelID()
 	for modelIDExists(m.settings.Models, model.ID) {
@@ -503,14 +505,14 @@ func (m *Manager) UpdateModel(input ModelInput) (View, error) {
 
 	index := modelIndex(m.settings.Models, input.ID)
 	if index < 0 {
-		return m.viewLocked(), errors.New("模型不存在")
+		return m.viewLocked(), errors.New(locales.ErrModelNotFound())
 	}
 	model, apiKey, err := prepareModel(input, input.ID)
 	if err != nil {
 		return m.viewLocked(), err
 	}
 	if modelNeedsKey(model) && apiKey == "" && m.modelKeys[model.ID] == "" {
-		return m.viewLocked(), errors.New("请填写 API Key")
+		return m.viewLocked(), errors.New(locales.ErrAPIKeyRequired())
 	}
 	next := m.settings
 	next.Models = append([]ModelConfig(nil), m.settings.Models...)
@@ -538,7 +540,7 @@ func (m *Manager) DeleteModel(id string) (View, error) {
 
 	index := modelIndex(m.settings.Models, id)
 	if index < 0 {
-		return m.viewLocked(), errors.New("模型不存在")
+		return m.viewLocked(), errors.New(locales.ErrModelNotFound())
 	}
 	next := m.settings
 	next.Models = append([]ModelConfig(nil), m.settings.Models...)
@@ -568,7 +570,7 @@ func (m *Manager) ActivateModel(id string) (View, error) {
 	defer m.mu.Unlock()
 
 	if modelIndex(m.settings.Models, id) < 0 {
-		return m.viewLocked(), errors.New("模型不存在")
+		return m.viewLocked(), errors.New(locales.ErrModelNotFound())
 	}
 	next := m.settings
 	next.ActiveModelID = id
@@ -589,11 +591,11 @@ func (m *Manager) ClearModelAPIKey(id string) (View, error) {
 
 	model, ok := m.modelByIDLocked(id)
 	if !ok {
-		return m.viewLocked(), errors.New("模型不存在")
+		return m.viewLocked(), errors.New(locales.ErrModelNotFound())
 	}
 	if storage := m.modelKeyStorage[id]; storage == KeyStorageEnvironment {
 		env := modelEnvKey(model.Provider)
-		return m.viewLocked(), fmt.Errorf("API Key 来自环境变量 %s，请在系统环境中修改", env)
+		return m.viewLocked(), errors.New(locales.ErrAPIKeyFromEnv(env))
 	}
 	if m.modelKeyStorage[id] == KeyStorageKeychain {
 		if id == "default" {
@@ -667,14 +669,14 @@ func (m *Manager) ClearTavilyAPIKey() (View, error) {
 
 func validateSecret(value string) error {
 	if len([]byte(value)) > MaxSecretBytes {
-		return fmt.Errorf("最多 %d 个字节", MaxSecretBytes)
+		return errors.New(locales.ErrSecretTooLong(MaxSecretBytes))
 	}
 	return nil
 }
 
 func (m *Manager) storeSecret(key, value string) bool {
 	if m.secrets == nil {
-		m.markKeychainUnavailable(errors.New("系统钥匙串不可用"))
+		m.markKeychainUnavailable(errors.New(locales.ErrKeychainUnavailable()))
 		return false
 	}
 	if err := m.secrets.Set(key, value); err != nil {
@@ -688,13 +690,13 @@ func (m *Manager) storeSecret(key, value string) bool {
 
 func (m *Manager) deleteSecret(key string) error {
 	if m.secrets == nil {
-		err := errors.New("系统钥匙串不可用")
+		err := errors.New(locales.ErrKeychainUnavailable())
 		m.markKeychainUnavailable(err)
 		return err
 	}
 	if err := m.secrets.Delete(key); err != nil {
 		m.markKeychainUnavailable(err)
-		return fmt.Errorf("删除系统钥匙串中的密钥: %w", err)
+		return fmt.Errorf("%s: %w", locales.ErrDeleteKeychainSecret(), err)
 	}
 	m.keychainAvailable = true
 	m.keychainError = ""
@@ -703,7 +705,7 @@ func (m *Manager) deleteSecret(key string) error {
 
 func (m *Manager) restoreSecret(key, value string) error {
 	if m.secrets == nil {
-		return errors.New("系统钥匙串不可用")
+		return errors.New(locales.ErrKeychainUnavailable())
 	}
 	return m.secrets.Set(key, value)
 }
@@ -858,13 +860,13 @@ func truncateRunes(value string, limit int) string {
 func validate(settings Settings) error {
 	if settings.SearchProvider != SearchProviderDuckDuckGo &&
 		settings.SearchProvider != SearchProviderTavily {
-		return fmt.Errorf("不支持的搜索供应商: %q", settings.SearchProvider)
+		return errors.New(locales.ErrUnsupportedSearchProvider(settings.SearchProvider))
 	}
 	if settings.SearchProvider == SearchProviderTavily && settings.TavilyAPIKey == "" {
-		return errors.New("使用 Tavily 搜索时需要填写 API Key")
+		return errors.New(locales.ErrTavilyKeyRequired())
 	}
 	if !oneOf(settings.ResponseStyle, ResponseStyleConcise, ResponseStyleBalanced, ResponseStyleDetailed) {
-		return fmt.Errorf("不支持的回答风格: %q", settings.ResponseStyle)
+		return errors.New(locales.ErrUnsupportedResponseStyle(settings.ResponseStyle))
 	}
 	if !oneOf(
 		settings.Personality,
@@ -875,19 +877,19 @@ func validate(settings Settings) error {
 		PersonalityEfficient,
 		PersonalityCynical,
 	) {
-		return fmt.Errorf("不支持的人格: %q", settings.Personality)
+		return errors.New(locales.ErrUnsupportedPersonality(settings.Personality))
 	}
 	if !oneOf(settings.Warmth, WarmthReserved, WarmthBalanced, WarmthFriendly) {
-		return fmt.Errorf("不支持的亲切程度: %q", settings.Warmth)
+		return errors.New(locales.ErrUnsupportedWarmth(settings.Warmth))
 	}
 	if !oneOf(settings.Enthusiasm, EnthusiasmCalm, EnthusiasmBalanced, EnthusiasmEnthusiastic) {
-		return fmt.Errorf("不支持的热情程度: %q", settings.Enthusiasm)
+		return errors.New(locales.ErrUnsupportedEnthusiasm(settings.Enthusiasm))
 	}
 	if !oneOf(settings.Emoji, EmojiNone, EmojiSparing, EmojiFrequent) {
-		return fmt.Errorf("不支持的 Emoji 设置: %q", settings.Emoji)
+		return errors.New(locales.ErrUnsupportedEmoji(settings.Emoji))
 	}
 	if len([]rune(settings.CustomInstructions)) > MaxCustomInstructions {
-		return fmt.Errorf("自定义指令最多 %d 个字符", MaxCustomInstructions)
+		return errors.New(locales.ErrCustomInstructionsTooLong(MaxCustomInstructions))
 	}
 	return nil
 }

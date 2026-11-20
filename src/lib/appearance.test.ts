@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
+import { messagesIn } from "../locales";
 import {
   appearanceStorageKey,
   applyAppearance,
@@ -71,7 +72,12 @@ describe("appearance", () => {
   });
 
   it("separates preset and installed font options", () => {
-    const options = buildFontOptions("chat", ["Aptos", "Noto Sans SC"], "family:Aptos");
+    const options = buildFontOptions(
+      "chat",
+      ["Aptos", "Noto Sans SC"],
+      "family:Aptos",
+      messagesIn("zh-Hans"),
+    );
 
     expect(options[0]).toMatchObject({ value: "system", label: "系统默认" });
     expect(options.filter((option) => option.group === "系统字体")).toHaveLength(2);
@@ -81,7 +87,7 @@ describe("appearance", () => {
   });
 
   it("keeps a selected family visible before the system list loads", () => {
-    const options = buildFontOptions("interface", [], "family:Fira Sans");
+    const options = buildFontOptions("interface", [], "family:Fira Sans", messagesIn("zh-Hans"));
     expect(options.find((option) => option.value === "family:Fira Sans")).toMatchObject({
       label: "Fira Sans",
       group: "系统字体",

@@ -1,13 +1,14 @@
 import { Brain, Cpu, Info, Palette, Search, Sparkles } from "lucide-react";
+import { useMessages } from "../../i18n";
 import type { SettingsSection } from "../../lib/types";
 
 const sections = [
-  { value: "general", label: "外观", icon: Palette },
-  { value: "personalization", label: "个性化", icon: Sparkles },
-  { value: "memory", label: "记忆", icon: Brain },
-  { value: "search", label: "搜索", icon: Search },
-  { value: "model", label: "模型", icon: Cpu },
-  { value: "about", label: "关于", icon: Info },
+  { value: "general", icon: Palette },
+  { value: "personalization", icon: Sparkles },
+  { value: "memory", icon: Brain },
+  { value: "search", icon: Search },
+  { value: "model", icon: Cpu },
+  { value: "about", icon: Info },
 ] as const;
 
 type SettingsNavProps = {
@@ -16,10 +17,19 @@ type SettingsNavProps = {
 };
 
 export function SettingsNav({ section, onChange }: SettingsNavProps) {
+  const t = useMessages();
+  const labels: Record<SettingsSection, string> = {
+    general: t.settingsNavGeneral(),
+    personalization: t.settingsNavPersonalization(),
+    memory: t.settingsNavMemory(),
+    search: t.settingsNavSearch(),
+    model: t.settingsNavModel(),
+    about: t.settingsNavAbout(),
+  };
   return (
-    <nav className="settings-nav" aria-label="设置栏目">
+    <nav className="settings-nav" aria-label={t.settingsNavLabel()}>
       <div className="settings-nav-list">
-        {sections.map(({ value, label, icon: Icon }) => (
+        {sections.map(({ value, icon: Icon }) => (
           <button
             key={value}
             type="button"
@@ -28,7 +38,7 @@ export function SettingsNav({ section, onChange }: SettingsNavProps) {
             onClick={() => onChange(value)}
           >
             <Icon size={16} />
-            <span>{label}</span>
+            <span>{labels[value]}</span>
           </button>
         ))}
       </div>

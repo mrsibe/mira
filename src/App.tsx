@@ -11,6 +11,7 @@ import { Sidebar } from "./components/Sidebar";
 import { Thread } from "./components/Thread";
 import { Welcome } from "./components/Welcome";
 import { WindowTitlebar } from "./components/WindowTitlebar";
+import { useLocale, useMessages } from "./i18n";
 import { type Appearance, applyAppearance, loadAppearance, saveAppearance } from "./lib/appearance";
 import { shouldAutoOpenModelWizard } from "./lib/modelWizard";
 import { applyChatEvent, emptyRun } from "./lib/run";
@@ -19,6 +20,7 @@ import {
   type ChatEvent,
   type Conversation,
   type Input,
+  type LanguageState,
   Mira,
   MiraTheme,
   type ModelInput,
@@ -46,6 +48,7 @@ function initialReasoningEffort(): ReasoningEffort {
 
 export default function App() {
   const [settings, setSettings] = useState<View | null>(null);
+  const [language, setLanguage] = useState<LanguageState | null>(null);
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
   const [wizard, setWizard] = useState<ModelWizardState | null>(null);
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -74,12 +77,35 @@ export default function App() {
   const [projectDialog, setProjectDialog] = useState<ProjectDialogState | null>(null);
   const toastTimer = useRef<number | undefined>(undefined);
 
+  const t = useMessages();
+  const appLocale = useLocale();
+  const previousLocale = useRef(appLocale);
   const { theme, setTheme } = useTheme();
   const { appearance, setAppearance } = useAppearance();
 
   useEffect(() => {
     localStorage.setItem(reasoningStorageKey, reasoningEffort);
   }, [reasoningEffort]);
+
+  useEffect(() => {
+    if (previousLocale.current === appLocale) return;
+    previousLocale.current = appLocale;
+    let alive = true;
+    void Mira.bootstrap()
+      .then((data) => {
+        if (!alive) return;
+        setProviders(data.providers);
+        setSettings(data.settings);
+        setLanguage(data.language);
+      })
+      .catch(() => {
+        // The UI language already changed; localized Go data can wait for the
+        // next bootstrap if this refresh fails.
+      });
+    return () => {
+      alive = false;
+    };
+  }, [appLocale]);
 
   const showToast = useCallback((message: string) => {
     setToast(message);
@@ -124,6 +150,7 @@ export default function App() {
         const data = await Mira.bootstrap();
         if (!alive) return;
         setSettings(data.settings);
+        setLanguage(data.language);
         setProviders(data.providers);
         setConversations(data.conversations);
         setProjects(data.projects);
@@ -142,7 +169,7 @@ export default function App() {
           await loadConversation(first.id);
         }
       } catch (error) {
-        if (alive) setBootstrapError(error instanceof Error ? error.message : "启动失败");
+        if (alive) setBootstrapError(error instanceof Error ? error.message : t.appStartupFailed());
       } finally {
         if (alive) setLoading(false);
       }
@@ -150,7 +177,7 @@ export default function App() {
     return () => {
       alive = false;
     };
-  }, [loadConversation]);
+  }, [loadConversation, t.appStartupFailed]);
 
   const activeConversation = useMemo(
     () => conversations.find((item) => item.id === activeId),
@@ -161,7 +188,7 @@ export default function App() {
   const activeRunning = activeId !== null && runningId === activeId;
   const showWelcome = activeMessages.length === 0 && !activeRun;
   const displayName = settings?.userName?.trim() ?? "";
-  const welcomeGreeting = displayName ? `${displayName}，今天聊点什么？` : "今天聊点什么？";
+  const welcomeGreeting = displayName ? t.welcomeGreetingNamed(displayName) : t.welcomeGreeting();
 
   const streamRun = useCallback(
     async (id: string, start: (events: Channel<ChatEvent>) => Promise<void>) => {
@@ -174,12 +201,12 @@ export default function App() {
         for await (const event of channel) {
           setRuns((previous) => ({
             ...previous,
-            [id]: applyChatEvent(previous[id], event),
+            [id]: applyChatEvent(previous[id], event, t),
           }));
         }
         await done;
       } catch (error) {
-        const message = error instanceof Error ? error.message : "发送失败";
+        const message = error instanceof Error ? error.message : t.appSendFailed();
         setRuns((previous) => ({
           ...previous,
           [id]: { ...(previous[id] ?? emptyRun()), status: "error", error: message },
@@ -220,7 +247,7 @@ export default function App() {
         }
       }
     },
-    [loadConversation, refreshConversations],
+    [loadConversation, refreshConversations, t],
   );
 
   const sendMessage = useCallback(
@@ -232,7 +259,7 @@ export default function App() {
         return;
       }
       if (runningId) {
-        showToast("正在生成回复，请先停止当前回复");
+        showToast(t.appBusy());
         return;
       }
 
@@ -246,7 +273,7 @@ export default function App() {
           setActiveId(conversation.id);
           setNewConversationProjectID("");
         } catch (error) {
-          showToast(error instanceof Error ? error.message : "无法创建会话");
+          showToast(error instanceof Error ? error.message : t.appCreateConversationFailed());
           return;
         }
       }
@@ -283,6 +310,8 @@ export default function App() {
       showToast,
       requestModelSetup,
       streamRun,
+      t.appCreateConversationFailed,
+      t.appBusy,
     ],
   );
 
@@ -295,7 +324,7 @@ export default function App() {
         return;
       }
       if (runningId) {
-        showToast("正在生成回复，请先停止当前回复");
+        showToast(t.appBusy());
         return;
       }
 
@@ -321,7 +350,16 @@ export default function App() {
         ),
       );
     },
-    [activeId, reasoningEffort, requestModelSetup, runningId, settings, showToast, streamRun],
+    [
+      activeId,
+      reasoningEffort,
+      requestModelSetup,
+      runningId,
+      settings,
+      showToast,
+      streamRun,
+      t.appBusy,
+    ],
   );
 
   const regenerateMessage = useCallback(
@@ -332,7 +370,7 @@ export default function App() {
         return;
       }
       if (runningId) {
-        showToast("正在生成回复，请先停止当前回复");
+        showToast(t.appBusy());
         return;
       }
 
@@ -365,6 +403,7 @@ export default function App() {
       settings,
       showToast,
       streamRun,
+      t.appBusy,
     ],
   );
 
@@ -372,7 +411,7 @@ export default function App() {
     async (messageIndex: number) => {
       if (!activeId) return;
       if (runningId) {
-        showToast("正在生成回复，请先停止当前回复");
+        showToast(t.appBusy());
         return;
       }
 
@@ -390,9 +429,9 @@ export default function App() {
         setNewConversationProjectID("");
         setScrollTarget(null);
         setComposer("");
-        showToast("已创建分支");
+        showToast(t.appForked());
       } catch (error) {
-        showToast(error instanceof Error ? error.message : "分叉失败");
+        showToast(error instanceof Error ? error.message : t.appForkFailed());
         return;
       }
 
@@ -402,7 +441,7 @@ export default function App() {
         // The new conversation is already available locally.
       }
     },
-    [activeId, refreshConversations, runningId, showToast],
+    [activeId, refreshConversations, runningId, showToast, t.appForked, t.appForkFailed, t.appBusy],
   );
 
   const handleAskAgent = useCallback(
@@ -414,7 +453,7 @@ export default function App() {
 
   function newChat(projectID = "") {
     if (runningId) {
-      showToast("正在生成回复，请先停止当前回复");
+      showToast(t.appBusy());
       return;
     }
     setScrollTarget(null);
@@ -433,7 +472,7 @@ export default function App() {
       try {
         await loadConversation(id);
       } catch (error) {
-        showToast(error instanceof Error ? error.message : "无法加载会话");
+        showToast(error instanceof Error ? error.message : t.appLoadFailed());
       }
     }
   }
@@ -445,7 +484,7 @@ export default function App() {
         previous.map((item) => (item.id === id ? { ...item, title } : item)),
       );
     } catch (error) {
-      showToast(error instanceof Error ? error.message : "重命名失败");
+      showToast(error instanceof Error ? error.message : t.appRenameFailed());
     }
   }
 
@@ -473,10 +512,10 @@ export default function App() {
         ),
       );
       const destination = projects.find((project) => project.id === projectID);
-      showToast(destination ? `已移动到“${destination.name}”` : "已移动到未分类");
+      showToast(destination ? t.appMovedTo(destination.name) : t.appMovedToUnfiled());
       return true;
     } catch (error) {
-      showToast(error instanceof Error ? error.message : "移动失败");
+      showToast(error instanceof Error ? error.message : t.appMoveFailed());
       return false;
     }
   }
@@ -504,7 +543,7 @@ export default function App() {
         if (next) await loadConversation(next.id);
       }
     } catch (error) {
-      showToast(error instanceof Error ? error.message : "删除项目失败");
+      showToast(error instanceof Error ? error.message : t.appDeleteProjectFailed());
     }
   }
 
@@ -532,7 +571,7 @@ export default function App() {
         if (next) await loadConversation(next.id);
       }
     } catch (error) {
-      showToast(error instanceof Error ? error.message : "删除失败");
+      showToast(error instanceof Error ? error.message : t.appDeleteFailed());
     }
   }
 
@@ -541,6 +580,10 @@ export default function App() {
     setSettings(saved);
     setConfigError("");
     return saved;
+  }
+
+  async function changeLanguage(tag: string) {
+    setLanguage(await Mira.setLanguage(tag));
   }
 
   async function activateModel(id: string) {
@@ -585,7 +628,7 @@ export default function App() {
     return (
       <div className="boot-screen">
         <BrandMark className="boot-mark" />
-        <span>正在打开 Mira…</span>
+        <span>{t.appLoading()}</span>
       </div>
     );
   }
@@ -594,7 +637,7 @@ export default function App() {
     return (
       <div className="boot-screen error">
         <BrandMark className="boot-mark" />
-        <h1>Mira 无法启动</h1>
+        <h1>{t.appStartFailed()}</h1>
         <p>{bootstrapError}</p>
       </div>
     );
@@ -611,7 +654,7 @@ export default function App() {
         <button
           type="button"
           className={`sidebar-backdrop ${sidebarOpen ? "visible" : ""}`}
-          aria-label="关闭侧栏"
+          aria-label={t.sidebarClose()}
           aria-hidden={!sidebarOpen}
           tabIndex={sidebarOpen ? 0 : -1}
           onClick={() => setSidebarOpen(false)}
@@ -643,7 +686,7 @@ export default function App() {
             <div className="config-banner">
               <span>{configError}</span>
               <button type="button" onClick={() => openSettings("model")}>
-                打开设置
+                {t.sidebarOpenSettings()}
               </button>
             </div>
           )}
@@ -662,7 +705,7 @@ export default function App() {
                 onStop={() => {
                   if (activeId) void Mira.stop(activeId);
                 }}
-                onAttach={() => showToast("附件将在后续版本支持")}
+                onAttach={() => showToast(t.composerAttachmentsSoon())}
               />
             </Welcome>
           ) : (
@@ -690,7 +733,7 @@ export default function App() {
                 onStop={() => {
                   if (activeId) void Mira.stop(activeId);
                 }}
-                onAttach={() => showToast("附件将在后续版本支持")}
+                onAttach={() => showToast(t.composerAttachmentsSoon())}
               />
             </>
           )}
@@ -710,6 +753,7 @@ export default function App() {
       {settings && settingsOpen && (
         <SettingsDialog
           settings={settings}
+          language={language}
           theme={theme}
           appearance={appearance}
           initialSection={settingsSection}
@@ -728,6 +772,7 @@ export default function App() {
           onClearTavilyKey={clearTavilyKey}
           onThemeChange={setTheme}
           onAppearanceChange={setAppearance}
+          onLanguageChange={changeLanguage}
         />
       )}
 
@@ -752,7 +797,7 @@ export default function App() {
           onSubmit={async (input) => {
             const saved = wizard.mode === "edit" ? await updateModel(input) : await addModel(input);
             setWizard(null);
-            showToast(wizard.mode === "edit" ? "模型已更新" : "模型已添加并启用");
+            showToast(wizard.mode === "edit" ? t.appModelUpdated() : t.appModelAdded());
             return saved;
           }}
           onClearKey={clearModelKey}
@@ -761,8 +806,8 @@ export default function App() {
 
       {confirmDelete && (
         <ConfirmDialog
-          title="删除对话？"
-          message={`“${confirmDelete.title}”及其消息将从本机删除。`}
+          title={t.conversationDeleteTitle()}
+          message={t.conversationDeleteMessage(confirmDelete.title)}
           onConfirm={deleteConversation}
           onClose={() => setConfirmDelete(null)}
         />
@@ -770,9 +815,9 @@ export default function App() {
 
       {confirmDeleteProject && (
         <ConfirmDialog
-          title="删除项目？"
-          message={projectDeleteMessage(confirmDeleteProject, conversations)}
-          confirmLabel="删除项目"
+          title={t.projectDeleteTitle()}
+          message={projectDeleteMessage(confirmDeleteProject, conversations, t)}
+          confirmLabel={t.projectDeleteConfirm()}
           onConfirm={deleteProject}
           onClose={() => setConfirmDeleteProject(null)}
         />
@@ -780,9 +825,9 @@ export default function App() {
 
       {projectDialog && (
         <ProjectDialog
-          title={projectDialog.mode === "create" ? "新建项目" : "重命名项目"}
+          title={projectDialog.mode === "create" ? t.projectNew() : t.projectRename()}
           initialName={projectDialog.mode === "rename" ? projectDialog.project.name : ""}
-          submitLabel={projectDialog.mode === "create" ? "创建" : "保存"}
+          submitLabel={projectDialog.mode === "create" ? t.projectCreate() : t.commonSave()}
           onClose={() => setProjectDialog(null)}
           onSubmit={async (name) => {
             if (projectDialog.mode === "rename") {
@@ -809,12 +854,16 @@ function removeRecords<T>(records: Record<string, T>, removedIDs: Set<string>) {
   return next;
 }
 
-function projectDeleteMessage(project: Project, conversations: Conversation[]) {
+function projectDeleteMessage(
+  project: Project,
+  conversations: Conversation[],
+  t: ReturnType<typeof useMessages>,
+) {
   const count = conversations.filter((item) => item.projectId === project.id).length;
   if (count === 0) {
-    return `“${project.name}”将被删除。`;
+    return t.projectDeleteMessageSimple(project.name);
   }
-  return `“${project.name}”和其中的 ${count} 个对话及其消息将从本机永久删除。`;
+  return t.projectDeleteMessageWithConversations(project.name, count);
 }
 
 function useTheme() {
@@ -843,7 +892,7 @@ function useTheme() {
 
   useEffect(() => {
     void MiraTheme.setTheme(theme).catch((error: unknown) => {
-      console.warn("无法同步原生窗口主题", error);
+      console.warn("Failed to sync native window theme", error);
     });
   }, [theme]);
 

@@ -1,4 +1,5 @@
 import { parseAssistantAnswer } from "../genui/stream";
+import type { Messages } from "../locales";
 import type { ToolResultView, UIMessage, UsageView } from "../mygo";
 import { shortArguments } from "./format";
 import { activePlanStep, PLAN_TOOL_NAME, parsePlan } from "./plan";
@@ -89,6 +90,7 @@ export function answerText(message: UIMessage) {
 export function buildCompletedTurn(
   messages: UIMessage[],
   toolResults: Map<string, ToolResultView>,
+  t: Messages,
 ): AssistantTurnView {
   let answerMessage: UIMessage | undefined;
   for (let index = messages.length - 1; index >= 0; index--) {
@@ -101,9 +103,9 @@ export function buildCompletedTurn(
   }
 
   const rawAnswer = answerMessage ? answerText(answerMessage) : "";
-  const parsed = parseAssistantAnswer(rawAnswer);
+  const parsed = parseAssistantAnswer(rawAnswer, { messages: t });
   return {
-    activity: completedActivity(messages, toolResults),
+    activity: completedActivity(messages, toolResults, t),
     answer: parsed.text,
     spec: parsed.spec,
     segments: parsed.segments,
@@ -117,6 +119,7 @@ export function buildCompletedTurn(
 function completedActivity(
   messages: UIMessage[],
   toolResults: Map<string, ToolResultView>,
+  t: Messages,
 ): Activity {
   const items: ActivityItem[] = [];
   const seenCalls = new Set<string>();
@@ -177,7 +180,7 @@ function completedActivity(
           id: call.id,
           name: call.name,
           arguments: call.arguments,
-          result: result?.text ?? "工具调用未完成（上一条回复被中止）。",
+          result: result?.text ?? t.toolResultIncomplete(),
           isError: result?.isError ?? true,
           status: "done",
         },
@@ -199,7 +202,7 @@ function planDelta(previous: PlanView | null, next: PlanView) {
   return changed;
 }
 
-export function buildLiveTurn(run: RunView): AssistantTurnView {
+export function buildLiveTurn(run: RunView, t: Messages): AssistantTurnView {
   let plan: PlanView | null = null;
   const items: ActivityItem[] = [];
   let boundary = -1;
@@ -233,7 +236,10 @@ export function buildLiveTurn(run: RunView): AssistantTurnView {
     .filter((part) => part.kind === "text")
     .map((part) => (part.kind === "text" ? part.text : ""))
     .join("");
-  const parsed = parseAssistantAnswer(rawAnswer, { streaming: run.status === "running" });
+  const parsed = parseAssistantAnswer(rawAnswer, {
+    streaming: run.status === "running",
+    messages: t,
+  });
 
   return {
     activity: { items, plan },
@@ -275,8 +281,8 @@ function addUsage(total: UsageView, usage: UsageView) {
   total.totalTokens += usage.totalTokens;
 }
 
-export function liveActivityTitle(activity: Activity, streaming: boolean) {
-  if (!streaming) return "思考已停止";
+export function liveActivityTitle(activity: Activity, streaming: boolean, t: Messages) {
+  if (!streaming) return t.activityStopped();
   let runningTool: ToolRun | undefined;
   for (let index = activity.items.length - 1; index >= 0; index--) {
     const item = activity.items[index];
@@ -285,59 +291,65 @@ export function liveActivityTitle(activity: Activity, streaming: boolean) {
       break;
     }
   }
-  if (runningTool) return toolActivityLabel(runningTool);
+  if (runningTool) return toolActivityLabel(runningTool, t);
   const active = activePlanStep(activity.plan);
-  if (active) return activeTitle(active.title);
+  if (active) return activeTitle(active.title, t);
   if (activity.plan?.steps.some((step) => step.status === "pending")) {
-    return "正在继续执行计划…";
+    return t.activityContinuingPlan();
   }
-  if (activity.items.length > 0) return "正在整理回答…";
-  return "正在思考…";
+  if (activity.items.length > 0) return t.activityOrganizing();
+  return t.activityThinking();
 }
 
-export function activeTitle(title: string) {
-  return title.startsWith("正在") ? title : `正在${title}`;
+export function activeTitle(title: string, t: Messages) {
+  return t.activityActiveTitle(title);
 }
 
-export function toolActivityLabel(tool: ToolRun) {
+export function toolActivityLabel(tool: ToolRun, t: Messages) {
   if (tool.name === "web_search") {
     const query = argumentString(tool.arguments, "query");
     if (tool.status === "running") {
-      return query ? `正在搜索「${query}」` : "正在搜索网页";
+      return query ? t.activitySearchingQuery(query) : t.activitySearchingWeb();
     }
-    if (tool.isError) return query ? `搜索「${query}」失败` : "搜索网页失败";
-    return query ? `已搜索网页「${query}」` : "已搜索网页";
+    if (tool.isError) {
+      return query ? t.activitySearchFailedQuery(query) : t.activitySearchFailed();
+    }
+    return query ? t.activitySearchedQuery(query) : t.activitySearchedWeb();
   }
   if (tool.name === "search_memory") {
     const query = argumentString(tool.arguments, "query");
     if (tool.status === "running") {
-      return query ? `正在搜索记忆「${query}」` : "正在搜索记忆";
+      return query ? t.activitySearchingMemoryQuery(query) : t.activitySearchingMemory();
     }
-    if (tool.isError) return query ? `记忆搜索「${query}」失败` : "搜索记忆失败";
-    return query ? `已搜索记忆「${query}」` : "已搜索记忆";
+    if (tool.isError) {
+      return query ? t.activityMemoryFailedQuery(query) : t.activityMemoryFailed();
+    }
+    return query ? t.activitySearchedMemoryQuery(query) : t.activitySearchedMemory();
   }
   if (tool.name === "get_current_time") {
-    return tool.status === "running" ? "正在获取当前时间" : "已获取当前时间";
+    return tool.status === "running" ? t.activityGettingTime() : t.activityGotTime();
   }
-  const preview = toolPreview(tool);
-  const label = toolLabel(tool.name);
+  const preview = toolPreview(tool, t);
+  const label = toolLabel(tool.name, t);
   if (tool.status === "running") {
-    return preview ? `正在执行 ${label} ${preview}` : `正在执行 ${label}`;
+    return preview
+      ? t.activityRunningToolWithPreview(label, preview)
+      : t.activityRunningTool(label);
   }
-  return preview ? `已执行 ${label} ${preview}` : `已执行 ${label}`;
+  return preview ? t.activityRanToolWithPreview(label, preview) : t.activityRanTool(label);
 }
 
-function toolLabel(name: string) {
-  if (name === "web_search") return "搜索网页";
-  if (name === "search_memory") return "搜索记忆";
-  if (name === "get_current_time") return "获取当前时间";
+function toolLabel(name: string, t: Messages) {
+  if (name === "web_search") return t.toolLabelWebSearch();
+  if (name === "search_memory") return t.toolLabelSearchMemory();
+  if (name === "get_current_time") return t.toolLabelCurrentTime();
   return name;
 }
 
-function toolPreview(tool: ToolRun) {
+function toolPreview(tool: ToolRun, t: Messages) {
   if (tool.name === "web_search" || tool.name === "search_memory") {
     const query = argumentString(tool.arguments, "query");
-    if (query) return `「${query}」`;
+    if (query) return t.toolPreviewQuery(query);
   }
   return tool.arguments ? shortArguments(tool.arguments) : "";
 }

@@ -21,7 +21,7 @@ func TestConversationLifecycleAndReload(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if created.Title != defaultTitle {
+	if created.Title != defaultChatTitle() {
 		t.Fatalf("new title = %q", created.Title)
 	}
 

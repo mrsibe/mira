@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { messagesIn } from "../locales";
 import type { UIMessage } from "../mygo";
 import { buildCompletedTurn, collectToolResults } from "./activity";
 
@@ -35,7 +36,7 @@ describe("buildCompletedTurn", () => {
       },
     ];
 
-    const view = buildCompletedTurn(messages, collectToolResults(messages));
+    const view = buildCompletedTurn(messages, collectToolResults(messages), messagesIn("zh-Hans"));
 
     expect(view.activity.items.map((item) => item.kind)).toEqual(["thinking", "tool"]);
     expect(view.activity.items[0]).toMatchObject({ text: "先确认概念" });

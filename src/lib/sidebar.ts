@@ -1,5 +1,5 @@
 import type { Conversation, Project } from "../mygo";
-import { groupConversations } from "./format";
+import { type ConversationGroup, groupConversations } from "./format";
 
 export type ProjectGroup = {
   project: Project;
@@ -8,7 +8,7 @@ export type ProjectGroup = {
 
 export type SidebarModel = {
   projects: ProjectGroup[];
-  unfiled: Array<[label: string, items: Conversation[]]>;
+  unfiled: Array<[group: ConversationGroup, items: Conversation[]]>;
 };
 
 export function buildSidebarModel(

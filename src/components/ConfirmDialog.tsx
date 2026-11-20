@@ -1,5 +1,6 @@
 import { AlertCircle, X } from "lucide-react";
 import { useId } from "react";
+import { useMessages } from "../i18n";
 import { Button, IconButton, Modal } from "../ui";
 
 type ConfirmDialogProps = {
@@ -13,10 +14,12 @@ type ConfirmDialogProps = {
 export function ConfirmDialog({
   title,
   message,
-  confirmLabel = "删除",
+  confirmLabel,
   onConfirm,
   onClose,
 }: ConfirmDialogProps) {
+  const t = useMessages();
+  const confirmText = confirmLabel ?? t.commonDelete();
   const titleId = useId();
   const descriptionId = useId();
 
@@ -38,15 +41,15 @@ export function ConfirmDialog({
             <p id={descriptionId}>{message}</p>
           </div>
         </div>
-        <IconButton label="关闭" onClick={onClose}>
+        <IconButton label={t.commonClose()} onClick={onClose}>
           <X size={18} />
         </IconButton>
       </header>
       <footer className="modal-actions">
         <span className="spacer" />
-        <Button onClick={onClose}>取消</Button>
+        <Button onClick={onClose}>{t.commonCancel()}</Button>
         <Button variant="danger" onClick={onConfirm}>
-          {confirmLabel}
+          {confirmText}
         </Button>
       </footer>
     </Modal>

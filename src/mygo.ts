@@ -13,6 +13,7 @@ export interface Bootstrap {
   activeConversationId?: string;
   version: string;
   configError?: string;
+  language: LanguageState;
 }
 
 /** ChatEvent is one streamed update sent through a MyGo channel. */
@@ -67,6 +68,19 @@ export interface Input {
   memorySummaryEnabled?: boolean;
   memorySearchEnabled?: boolean;
   intelligentUIEnabled?: boolean;
+}
+
+/** LanguageOption is one language the app is written in. */
+export interface LanguageOption {
+  tag: string;
+  label: string;
+}
+
+/** LanguageState is the language the app shows and the one the user chose. */
+export interface LanguageState {
+  effective: string;
+  chosen: string;
+  languages: LanguageOption[];
 }
 
 /** View is the frontend-safe memory snapshot. */
@@ -304,6 +318,10 @@ export const Mira = {
   getMemory(): Promise<MemoryView> {
     return call("Mira.GetMemory");
   },
+  /** Language returns the app's language preferences. */
+  language(): Promise<LanguageState> {
+    return call("Mira.Language");
+  },
   /** ListConversations returns the sidebar entries. */
   listConversations(): Promise<Conversation[]> {
     return call("Mira.ListConversations");
@@ -354,6 +372,10 @@ export const Mira = {
   /** Send adds a user message and streams one agent run through a MyGo channel. */
   send(conversationID: string, content: string, options: SendOptions, events: Channel<ChatEvent>): Promise<void> {
     return call("Mira.Send", conversationID, content, options, events);
+  },
+  /** SetLanguage shows the language of tag, or follows the system for "". */
+  setLanguage(tag: string): Promise<LanguageState> {
+    return call("Mira.SetLanguage", tag);
   },
   /** Stop cancels the active run for a conversation. */
   stop(conversationID: string): Promise<void> {

@@ -17,14 +17,13 @@ import (
 	"unicode"
 
 	"github.com/mrsibe/goat/ai"
+	"github.com/mrsibe/mira/locales"
 )
 
 const (
 	fileVersion        = 1
 	indexVersion       = 1
 	projectFileVersion = 1
-	defaultTitle       = "新对话"
-	unfiledProjectName = "未分类"
 	maxProjectName     = 48
 )
 
@@ -151,6 +150,9 @@ func (s *Store) List() []Conversation {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	result := append([]Conversation(nil), s.entries...)
+	for index := range result {
+		result[index] = localizeConversation(result[index])
+	}
 	sort.Slice(result, func(i, j int) bool {
 		return result[i].UpdatedAt.After(result[j].UpdatedAt)
 	})
@@ -179,7 +181,7 @@ func (s *Store) Search(query string) []SearchResult {
 		if err != nil {
 			continue
 		}
-		result := SearchResult{Conversation: conversation, MessageIndex: -1}
+		result := SearchResult{Conversation: localizeConversation(conversation), MessageIndex: -1}
 		titleMatch := strings.Contains(strings.ToLower(conversation.Title), needle)
 		previewMatch := strings.Contains(strings.ToLower(conversation.Preview), needle)
 		if titleMatch || previewMatch {
@@ -261,7 +263,7 @@ func (s *Store) RenameProject(id, name string) error {
 
 	index := s.findProject(id)
 	if index < 0 {
-		return fmt.Errorf("项目不存在")
+		return errors.New(locales.ErrProjectNotFound())
 	}
 	name, err := s.validateProjectName(id, name)
 	if err != nil {
@@ -283,7 +285,7 @@ func (s *Store) DeleteProject(id string) error {
 
 	projectIndex := s.findProject(id)
 	if projectIndex < 0 {
-		return fmt.Errorf("项目不存在")
+		return errors.New(locales.ErrProjectNotFound())
 	}
 	deleted := make(map[string]bool)
 	for _, conversation := range s.entries {
@@ -295,7 +297,7 @@ func (s *Store) DeleteProject(id string) error {
 				s.removeConversations(deleted)
 				_ = s.writeIndex(s.entries)
 			}
-			return fmt.Errorf("删除项目中的会话: %w", err)
+			return fmt.Errorf("%s: %w", locales.ErrDeleteProjectConversations(), err)
 		}
 		deleted[conversation.ID] = true
 	}
@@ -318,7 +320,7 @@ func (s *Store) CreateInProject(projectID string) (Conversation, error) {
 	defer s.mu.Unlock()
 
 	if projectID != "" && s.findProject(projectID) < 0 {
-		return Conversation{}, fmt.Errorf("项目不存在")
+		return Conversation{}, errors.New(locales.ErrProjectNotFound())
 	}
 	now := time.Now().UTC()
 	id, err := newID(now)
@@ -327,7 +329,7 @@ func (s *Store) CreateInProject(projectID string) (Conversation, error) {
 	}
 	conversation := Conversation{
 		ID:        id,
-		Title:     defaultTitle,
+		Title:     defaultChatTitle(),
 		ProjectID: projectID,
 		CreatedAt: now,
 		UpdatedAt: now,
@@ -358,10 +360,10 @@ func (s *Store) MoveConversation(id, projectID string) error {
 
 	index := s.find(id)
 	if index < 0 {
-		return fmt.Errorf("会话不存在")
+		return errors.New(locales.ErrConversationNotFound())
 	}
 	if projectID != "" && s.findProject(projectID) < 0 {
-		return fmt.Errorf("项目不存在")
+		return errors.New(locales.ErrProjectNotFound())
 	}
 	if s.entries[index].ProjectID == projectID {
 		return nil
@@ -391,7 +393,7 @@ func (s *Store) Get(id string) (Conversation, []ai.Message, error) {
 	for index, record := range records {
 		messages[index] = record.Message
 	}
-	return conversation, messages, nil
+	return localizeConversation(conversation), messages, nil
 }
 
 // GetRecords returns messages with their persisted turn metadata.
@@ -404,13 +406,13 @@ func (s *Store) GetRecords(id string) (Conversation, []MessageRecord, error) {
 func (s *Store) getRecords(id string) (Conversation, []MessageRecord, error) {
 	index := s.find(id)
 	if index < 0 {
-		return Conversation{}, nil, fmt.Errorf("会话不存在")
+		return Conversation{}, nil, errors.New(locales.ErrConversationNotFound())
 	}
 	_, records, err := s.readRecords(id)
 	if err != nil {
 		return Conversation{}, nil, err
 	}
-	return s.entries[index], records, nil
+	return localizeConversation(s.entries[index]), records, nil
 }
 
 // Append writes one completed message.
@@ -426,7 +428,7 @@ func (s *Store) AppendWithThinkingDuration(id string, message ai.Message, durati
 
 	index := s.find(id)
 	if index < 0 {
-		return fmt.Errorf("会话不存在")
+		return errors.New(locales.ErrConversationNotFound())
 	}
 	now := time.Now().UTC()
 	item := entry{
@@ -440,7 +442,7 @@ func (s *Store) AppendWithThinkingDuration(id string, message ai.Message, durati
 	}
 
 	conversation := &s.entries[index]
-	if message.Role == ai.RoleUser && conversation.Title == defaultTitle {
+	if message.Role == ai.RoleUser && isDefaultChatTitle(conversation.Title) {
 		if title := titleFromText(message.Text()); title != "" {
 			conversation.Title = title
 		}
@@ -462,7 +464,7 @@ func (s *Store) AppendUsage(id string, usage ai.Usage) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.find(id) < 0 {
-		return fmt.Errorf("会话不存在")
+		return errors.New(locales.ErrConversationNotFound())
 	}
 	item := entry{Type: "usage", Timestamp: time.Now().UTC(), Usage: &usage}
 	return s.appendEntry(id, item)
@@ -474,7 +476,7 @@ func (s *Store) AppendContext(id, kind, hash string, message ai.Message) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.find(id) < 0 {
-		return fmt.Errorf("会话不存在")
+		return errors.New(locales.ErrConversationNotFound())
 	}
 	item := entry{
 		Type:        "message",
@@ -495,7 +497,7 @@ func (s *Store) EditUserMessage(id string, messageIndex int, content string) (Co
 
 	index := s.find(id)
 	if index < 0 {
-		return Conversation{}, fmt.Errorf("会话不存在")
+		return Conversation{}, errors.New(locales.ErrConversationNotFound())
 	}
 	h, entries, visible, err := s.readRawConversation(id)
 	if err != nil {
@@ -506,7 +508,7 @@ func (s *Store) EditUserMessage(id string, messageIndex int, content string) (Co
 		return Conversation{}, err
 	}
 	if target.role != ai.RoleUser {
-		return Conversation{}, errors.New("只能编辑用户消息")
+		return Conversation{}, errors.New(locales.ErrEditUserMessageOnly())
 	}
 
 	old := s.entries[index]
@@ -543,7 +545,7 @@ func (s *Store) TruncateAssistantTurn(id string, messageIndex int) (Conversation
 
 	index := s.find(id)
 	if index < 0 {
-		return Conversation{}, fmt.Errorf("会话不存在")
+		return Conversation{}, errors.New(locales.ErrConversationNotFound())
 	}
 	h, entries, visible, err := s.readRawConversation(id)
 	if err != nil {
@@ -554,7 +556,7 @@ func (s *Store) TruncateAssistantTurn(id string, messageIndex int) (Conversation
 		return Conversation{}, err
 	}
 	if target.role != ai.RoleAssistant {
-		return Conversation{}, errors.New("只能重新生成助手回答")
+		return Conversation{}, errors.New(locales.ErrRegenerateAssistantOnly())
 	}
 
 	userPosition := -1
@@ -565,7 +567,7 @@ func (s *Store) TruncateAssistantTurn(id string, messageIndex int) (Conversation
 		}
 	}
 	if userPosition < 0 {
-		return Conversation{}, errors.New("没有找到这条回答对应的用户消息")
+		return Conversation{}, errors.New(locales.ErrNoUserMessageForAnswer())
 	}
 	turnPosition := -1
 	for position := userPosition + 1; position < len(visible); position++ {
@@ -578,7 +580,7 @@ func (s *Store) TruncateAssistantTurn(id string, messageIndex int) (Conversation
 		}
 	}
 	if turnPosition < 0 || messageIndex < turnPosition {
-		return Conversation{}, errors.New("没有找到可重新生成的助手回合")
+		return Conversation{}, errors.New(locales.ErrNoAssistantTurnToRegenerate())
 	}
 
 	old := s.entries[index]
@@ -598,7 +600,7 @@ func (s *Store) ForkAssistantTurn(id string, messageIndex int) (Conversation, er
 
 	sourceIndex := s.find(id)
 	if sourceIndex < 0 {
-		return Conversation{}, fmt.Errorf("会话不存在")
+		return Conversation{}, errors.New(locales.ErrConversationNotFound())
 	}
 	source := s.entries[sourceIndex]
 	_, entries, visible, err := s.readRawConversation(id)
@@ -610,7 +612,7 @@ func (s *Store) ForkAssistantTurn(id string, messageIndex int) (Conversation, er
 		return Conversation{}, err
 	}
 	if target.role != ai.RoleAssistant {
-		return Conversation{}, errors.New("只能从助手回答分叉")
+		return Conversation{}, errors.New(locales.ErrForkAssistantOnly())
 	}
 
 	userPosition := -1
@@ -621,7 +623,7 @@ func (s *Store) ForkAssistantTurn(id string, messageIndex int) (Conversation, er
 		}
 	}
 	if userPosition < 0 {
-		return Conversation{}, errors.New("没有找到这条回答对应的用户消息")
+		return Conversation{}, errors.New(locales.ErrNoUserMessageForAnswer())
 	}
 	turnStart := -1
 	for position := userPosition + 1; position < len(visible); position++ {
@@ -634,7 +636,7 @@ func (s *Store) ForkAssistantTurn(id string, messageIndex int) (Conversation, er
 		}
 	}
 	if turnStart < 0 || messageIndex < turnStart {
-		return Conversation{}, errors.New("没有找到可分叉的助手回合")
+		return Conversation{}, errors.New(locales.ErrNoAssistantTurnToFork())
 	}
 	turnEnd := turnStart
 	for turnEnd+1 < len(visible) {
@@ -645,7 +647,7 @@ func (s *Store) ForkAssistantTurn(id string, messageIndex int) (Conversation, er
 		turnEnd++
 	}
 	if messageIndex > turnEnd {
-		return Conversation{}, errors.New("只能从完整助手回合分叉")
+		return Conversation{}, errors.New(locales.ErrForkCompleteTurnOnly())
 	}
 
 	cut := visible[turnEnd].rawIndex + 1
@@ -654,7 +656,7 @@ func (s *Store) ForkAssistantTurn(id string, messageIndex int) (Conversation, er
 	}
 	copied := rewriteEntries(entries[:cut])
 	if len(copied) == 0 {
-		return Conversation{}, errors.New("这轮回答没有可复制的内容")
+		return Conversation{}, errors.New(locales.ErrNothingToCopy())
 	}
 
 	now := time.Now().UTC()
@@ -677,7 +679,7 @@ func (s *Store) ForkAssistantTurn(id string, messageIndex int) (Conversation, er
 		_ = os.Remove(s.path(newID))
 		return Conversation{}, err
 	}
-	info.Title = truncate(source.Title+"（分支）", 80)
+	info.Title = truncate(locales.BranchTitle(source.Title), 80)
 	s.entries = append(s.entries, info)
 	if err := s.writeIndex(s.entries); err != nil {
 		s.entries = s.entries[:len(s.entries)-1]
@@ -693,11 +695,11 @@ func (s *Store) Rename(id, title string) error {
 	defer s.mu.Unlock()
 	index := s.find(id)
 	if index < 0 {
-		return fmt.Errorf("会话不存在")
+		return errors.New(locales.ErrConversationNotFound())
 	}
 	title = strings.TrimSpace(title)
 	if title == "" {
-		title = defaultTitle
+		title = defaultChatTitle()
 	}
 	s.entries[index].Title = truncate(title, 80)
 	return s.writeIndex(s.entries)
@@ -709,10 +711,10 @@ func (s *Store) Delete(id string) error {
 	defer s.mu.Unlock()
 	index := s.find(id)
 	if index < 0 {
-		return fmt.Errorf("会话不存在")
+		return errors.New(locales.ErrConversationNotFound())
 	}
 	if err := os.Remove(s.path(id)); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return fmt.Errorf("删除会话文件: %w", err)
+		return fmt.Errorf("%s: %w", locales.ErrDeleteConversationFile(), err)
 	}
 	s.entries = append(s.entries[:index], s.entries[index+1:]...)
 	return s.writeIndex(s.entries)
@@ -752,10 +754,10 @@ func (s *Store) removeConversations(ids map[string]bool) {
 func (s *Store) validateProjectName(currentID, name string) (string, error) {
 	name = strings.Join(strings.Fields(name), " ")
 	if name == "" {
-		return "", errors.New("项目名称不能为空")
+		return "", errors.New(locales.ErrProjectNameRequired())
 	}
-	if name == unfiledProjectName {
-		return "", fmt.Errorf("“%s”是保留名称", unfiledProjectName)
+	if isDefaultProjectName(name) {
+		return "", errors.New(locales.ErrReservedProjectName(defaultProjectName()))
 	}
 	name = truncate(name, maxProjectName)
 	for i := range s.projects {
@@ -763,7 +765,7 @@ func (s *Store) validateProjectName(currentID, name string) (string, error) {
 			continue
 		}
 		if strings.EqualFold(s.projects[i].Name, name) {
-			return "", fmt.Errorf("项目名称已存在")
+			return "", errors.New(locales.ErrProjectNameExists())
 		}
 	}
 	return name, nil
@@ -985,7 +987,7 @@ func (s *Store) readRawConversation(id string) (header, []rawEntry, []visibleMes
 
 func visibleTarget(visible []visibleMessage, index int) (visibleMessage, error) {
 	if index < 0 || index >= len(visible) {
-		return visibleMessage{}, errors.New("消息不存在")
+		return visibleMessage{}, errors.New(locales.ErrMessageNotFound())
 	}
 	return visible[index], nil
 }
@@ -1082,7 +1084,7 @@ func (s *Store) refreshConversation(index int, old Conversation, oldDerivedTitle
 	info.ID = old.ID
 	info.ProjectID = old.ProjectID
 	info.CreatedAt = old.CreatedAt
-	if old.Title != defaultTitle && old.Title != oldDerivedTitle {
+	if !isDefaultChatTitle(old.Title) && old.Title != oldDerivedTitle {
 		info.Title = old.Title
 	}
 
@@ -1111,7 +1113,7 @@ func (s *Store) readRecords(id string) (Conversation, []MessageRecord, error) {
 	file, err := os.Open(s.path(id))
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return Conversation{ID: id, Title: defaultTitle}, nil, nil
+			return Conversation{ID: id, Title: defaultChatTitle()}, nil, nil
 		}
 		return Conversation{}, nil, fmt.Errorf("open conversation: %w", err)
 	}
@@ -1125,7 +1127,7 @@ func (s *Store) readRecords(id string) (Conversation, []MessageRecord, error) {
 		seenHead bool
 	)
 	info.ID = id
-	info.Title = defaultTitle
+	info.Title = defaultChatTitle()
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		if line == "" {
@@ -1176,7 +1178,7 @@ func (s *Store) readRecords(id string) (Conversation, []MessageRecord, error) {
 		if item.Message.Role != ai.RoleSystem {
 			info.MessageCount++
 		}
-		if item.Message.Role == ai.RoleUser && info.Title == defaultTitle {
+		if item.Message.Role == ai.RoleUser && isDefaultChatTitle(info.Title) {
 			if title := titleFromText(item.Message.Text()); title != "" {
 				info.Title = title
 			}
@@ -1262,4 +1264,31 @@ func snippetAround(text, query string, before, after int) string {
 		snippet += "…"
 	}
 	return snippet
+}
+
+func localizeConversation(conversation Conversation) Conversation {
+	if isDefaultChatTitle(conversation.Title) {
+		conversation.Title = defaultChatTitle()
+	}
+	return conversation
+}
+
+func defaultChatTitle() string {
+	return locales.DefaultChatTitle()
+}
+
+func isDefaultChatTitle(title string) bool {
+	return title == locales.In("zh-Hans").DefaultChatTitle() ||
+		title == locales.In("en").DefaultChatTitle() ||
+		title == locales.DefaultChatTitle()
+}
+
+func defaultProjectName() string {
+	return locales.DefaultProjectName()
+}
+
+func isDefaultProjectName(name string) bool {
+	return name == locales.In("zh-Hans").DefaultProjectName() ||
+		name == locales.In("en").DefaultProjectName() ||
+		name == locales.DefaultProjectName()
 }

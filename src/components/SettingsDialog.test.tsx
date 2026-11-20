@@ -57,6 +57,8 @@ describe("SettingsDialog", () => {
     render(
       <SettingsDialog
         settings={settings}
+        language={null}
+        onLanguageChange={vi.fn()}
         theme="system"
         appearance={defaultAppearance}
         initialSection="personalization"
@@ -86,6 +88,8 @@ describe("SettingsDialog", () => {
     render(
       <SettingsDialog
         settings={settings}
+        language={null}
+        onLanguageChange={vi.fn()}
         theme="system"
         appearance={defaultAppearance}
         initialSection="personalization"
@@ -114,6 +118,8 @@ describe("SettingsDialog", () => {
     render(
       <SettingsDialog
         settings={settings}
+        language={null}
+        onLanguageChange={vi.fn()}
         theme="system"
         appearance={defaultAppearance}
         initialSection="general"

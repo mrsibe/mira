@@ -18,6 +18,8 @@ import {
   useRef,
   useState,
 } from "react";
+import { useMessages } from "../i18n";
+import type { ConversationGroup } from "../lib/format";
 import { buildSidebarModel } from "../lib/sidebar";
 import {
   type ConversationDrag,
@@ -162,7 +164,14 @@ export function Sidebar({
     setMenu(null);
   }, []);
 
+  const messages = useMessages();
   const model = buildSidebarModel(projects, conversations);
+  const groupLabels: Record<ConversationGroup, string> = {
+    today: messages.conversationGroupToday(),
+    yesterday: messages.conversationGroupYesterday(),
+    last7Days: messages.conversationGroupLast7Days(),
+    earlier: messages.conversationGroupEarlier(),
+  };
   const canUnfile = dragging !== null && dragging.sourceProjectID !== "";
   const showUnfiledRegion = model.unfiled.length > 0 || canUnfile;
 
@@ -433,8 +442,8 @@ export function Sidebar({
             <button
               type="button"
               className="mini-button"
-              title="对话操作"
-              aria-label={`打开“${item.title}”的操作菜单`}
+              title={messages.sidebarConversationActions()}
+              aria-label={messages.sidebarOpenConversationMenu(item.title)}
               aria-haspopup="menu"
               onClick={(event) => openConversationMenu(event, item)}
             >
@@ -451,18 +460,26 @@ export function Sidebar({
       <div className="sidebar-actions">
         <button className="new-chat" type="button" onClick={onNew}>
           <SquarePen size={17} />
-          <span>新对话</span>
+          <span>{messages.sidebarNewChat()}</span>
         </button>
-        <IconButton label="搜索对话" className="sidebar-search-button" onClick={onOpenSearch}>
+        <IconButton
+          label={messages.sidebarSearch()}
+          className="sidebar-search-button"
+          onClick={onOpenSearch}
+        >
           <Search size={17} />
         </IconButton>
       </div>
 
-      <nav ref={listRef} className="conversation-list" aria-label="对话与项目列表">
+      <nav
+        ref={listRef}
+        className="conversation-list"
+        aria-label={messages.sidebarConversationList()}
+      >
         <div className="sidebar-section-head">
-          <h2>项目</h2>
+          <h2>{messages.sidebarProjects()}</h2>
           <IconButton
-            label="新建项目"
+            label={messages.sidebarNewProject()}
             className="sidebar-section-add"
             onClick={() => onCreateProject()}
           >
@@ -503,8 +520,8 @@ export function Sidebar({
                   <button
                     type="button"
                     className="mini-button"
-                    title="在此项目中新建对话"
-                    aria-label={`在“${project.name}”中新建对话`}
+                    title={messages.sidebarNewChatInProject()}
+                    aria-label={messages.sidebarNewChatInProjectLabel(project.name)}
                     onClick={(event) => {
                       event.stopPropagation();
                       onNewInProject(project.id);
@@ -515,8 +532,8 @@ export function Sidebar({
                   <button
                     type="button"
                     className="mini-button"
-                    title="项目操作"
-                    aria-label={`打开“${project.name}”的项目菜单`}
+                    title={messages.sidebarProjectActions()}
+                    aria-label={messages.sidebarProjectMenuLabel(project.name)}
                     aria-haspopup="menu"
                     onClick={(event) => openProjectMenu(event, project)}
                   >
@@ -527,7 +544,7 @@ export function Sidebar({
               {expanded && (
                 <div className="project-conversations">
                   {items.length === 0 ? (
-                    <p className="project-empty">还没有对话</p>
+                    <p className="project-empty">{messages.sidebarNoConversations()}</p>
                   ) : (
                     items.map(renderConversation)
                   )}
@@ -538,7 +555,7 @@ export function Sidebar({
         })}
 
         {model.projects.length === 0 && conversations.length > 0 && (
-          <p className="sidebar-empty compact">还没有项目</p>
+          <p className="sidebar-empty compact">{messages.sidebarNoProjects()}</p>
         )}
 
         {showUnfiledRegion && (
@@ -554,12 +571,12 @@ export function Sidebar({
             {canUnfile && (
               <div className="unfiled-drop-label">
                 <FolderInput size={15} aria-hidden="true" />
-                <span>拖到这里移出项目</span>
+                <span>{messages.sidebarDropToUnfile()}</span>
               </div>
             )}
-            {model.unfiled.map(([label, items]) => (
-              <section key={label} className="conversation-group">
-                <h2>{label}</h2>
+            {model.unfiled.map(([group, items]) => (
+              <section key={group} className="conversation-group">
+                <h2>{groupLabels[group]}</h2>
                 {items.map(renderConversation)}
               </section>
             ))}
@@ -567,26 +584,26 @@ export function Sidebar({
         )}
 
         {conversations.length === 0 && projects.length === 0 && (
-          <p className="sidebar-empty">还没有对话</p>
+          <p className="sidebar-empty">{messages.sidebarNoConversations()}</p>
         )}
       </nav>
 
       <div className="sidebar-foot">
         <button type="button" className="foot-row" onClick={onSettings}>
           <Settings size={16} />
-          <span>设置</span>
+          <span>{messages.sidebarSettings()}</span>
         </button>
       </div>
 
       <hr
         className={`sidebar-resizer ${resizing ? "resizing" : ""}`}
         aria-orientation="vertical"
-        aria-label="调整侧栏宽度"
+        aria-label={messages.sidebarResize()}
         aria-valuemin={minSidebarWidth}
         aria-valuemax={maxSidebarWidthForViewport(viewportWidth)}
         aria-valuenow={sidebarWidth}
         aria-valuetext={`${sidebarWidth}px`}
-        title="拖动调整侧栏宽度；双击恢复默认"
+        title={messages.sidebarResizeTitle()}
         tabIndex={0}
         onPointerDown={startResize}
         onDoubleClick={resetSidebarWidth}

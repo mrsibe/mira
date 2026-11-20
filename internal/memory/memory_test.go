@@ -16,6 +16,7 @@ import (
 	"github.com/mrsibe/goat/ai"
 	"github.com/mrsibe/mira/internal/config"
 	"github.com/mrsibe/mira/internal/store"
+	"github.com/mrsibe/mira/locales"
 )
 
 type fakeSource struct {
@@ -178,7 +179,7 @@ func TestUserFileRoundTripAndRevisionConflict(t *testing.T) {
 		t.Fatal(err)
 	}
 	view, err := manager.Save(SaveInput{
-		Summary:  "## 用户洞察\n- 后端工程师",
+		Summary:  "## User Insights\n- 后端工程师",
 		Revision: 0,
 	})
 	if err != nil {
@@ -248,9 +249,9 @@ func TestOpenMigratesLegacyMemorySectionsWithoutChangingState(t *testing.T) {
 		t.Fatalf("migration changed summary state: %+v", view)
 	}
 	for _, text := range []string{
-		"## 回答偏好\n- 先给结论",
-		"## 用户洞察\n- 后端工程师\n\n- 用中文回答",
-		"## 当前项目与目标\n- Mira",
+		"## Response Preferences\n- 先给结论",
+		"## User Insights\n- 后端工程师\n\n- 用中文回答",
+		"## Current Projects and Goals\n- Mira",
 	} {
 		if !strings.Contains(view.Summary, text) {
 			t.Fatalf("migrated memory is missing %q:\n%s", text, view.Summary)
@@ -265,7 +266,7 @@ func TestOpenMigratesLegacyMemorySectionsWithoutChangingState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(data), "## 回答偏好") {
+	if !strings.Contains(string(data), "## Response Preferences") {
 		t.Fatalf("migrated USER.md was not written: %s", data)
 	}
 }
@@ -280,7 +281,7 @@ func TestMemorySectionMigrationPreservesUnknownContent(t *testing.T) {
 ## 重要约束
 - 不要使用术语`
 	migrated := normalizeMemorySections(value)
-	if !strings.Contains(migrated, "## 用户洞察\n- 设计师\n\n- 不要使用术语") {
+	if !strings.Contains(migrated, "## User Insights\n- 设计师\n\n- 不要使用术语") {
 		t.Fatalf("known sections were not migrated:\n%s", migrated)
 	}
 	if !strings.Contains(migrated, "## 其他背景\n无法归类的原文") {
@@ -314,7 +315,12 @@ func TestSummaryPromptUsesFourMemorySections(t *testing.T) {
 	); err != nil {
 		t.Fatal(err)
 	}
-	for _, heading := range memorySectionOrder {
+	for _, heading := range []string{
+		locales.MemorySectionPreferences(),
+		locales.MemorySectionTopics(),
+		locales.MemorySectionInsights(),
+		locales.MemorySectionProjects(),
+	} {
 		if !strings.Contains(systemPrompt, "## "+heading) {
 			t.Fatalf("summary prompt is missing %q:\n%s", heading, systemPrompt)
 		}

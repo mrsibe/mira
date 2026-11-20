@@ -9,6 +9,8 @@ import (
 	"io"
 	"net/http"
 	"strings"
+
+	"github.com/mrsibe/mira/locales"
 )
 
 const tavilySearchURL = "https://api.tavily.com/search"
@@ -29,10 +31,10 @@ func (p *TavilyProvider) Name() string { return "Tavily" }
 func (p *TavilyProvider) Search(ctx context.Context, query string, limit int) ([]Result, error) {
 	query = strings.TrimSpace(query)
 	if query == "" {
-		return nil, ErrEmptyQuery
+		return nil, errors.New(locales.ErrSearchEmptyQuery())
 	}
 	if p.apiKey == "" {
-		return nil, errors.New("未配置 Tavily API Key，请在设置中填写或改用 DuckDuckGo")
+		return nil, errors.New(locales.ErrTavilyKeyMissing())
 	}
 	limit = normalizeLimit(limit)
 	ctx, cancel := withRequestTimeout(ctx)
@@ -70,9 +72,9 @@ func (p *TavilyProvider) Search(ctx context.Context, query string, limit int) ([
 		_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 4096))
 		switch response.StatusCode {
 		case http.StatusUnauthorized, http.StatusForbidden:
-			return nil, errors.New("Tavily API Key 无效或没有权限")
+			return nil, errors.New(locales.ErrTavilyUnauthorized())
 		case http.StatusTooManyRequests:
-			return nil, errors.New("Tavily 请求过于频繁，请稍后再试")
+			return nil, errors.New(locales.ErrTavilyRateLimited())
 		default:
 			return nil, fmt.Errorf("Tavily HTTP %d", response.StatusCode)
 		}
@@ -89,7 +91,7 @@ func (p *TavilyProvider) Search(ctx context.Context, query string, limit int) ([
 		} `json:"results"`
 	}
 	if err := json.Unmarshal(body, &decoded); err != nil {
-		return nil, errors.New("Tavily 返回了无法解析的响应")
+		return nil, errors.New(locales.ErrTavilyInvalidResponse())
 	}
 
 	results := make([]Result, 0, limit)
@@ -121,7 +123,7 @@ func (p *TavilyProvider) Search(ctx context.Context, query string, limit int) ([
 		})
 	}
 	if len(results) == 0 {
-		return nil, errors.New("Tavily 没有返回可用结果")
+		return nil, errors.New(locales.ErrTavilyNoResults())
 	}
 	return results, nil
 }

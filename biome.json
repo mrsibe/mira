@@ -1,7 +1,16 @@
 {
   "$schema": "https://biomejs.dev/schemas/2.6.6/schema.json",
   "files": {
-    "includes": ["src/**", "*.ts", "*.json", "!src/mygo.ts", "!dist", "!build", "!node_modules"]
+    "includes": [
+      "src/**",
+      "*.ts",
+      "*.json",
+      "!src/mygo.ts",
+      "!src/locales.ts",
+      "!dist",
+      "!build",
+      "!node_modules"
+    ]
   },
   "formatter": {
     "enabled": true,

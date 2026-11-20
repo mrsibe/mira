@@ -1,5 +1,6 @@
 import { Monitor, Moon, Sun } from "lucide-react";
 import { useMemo } from "react";
+import { useMessages } from "../../i18n";
 import {
   type Appearance,
   buildFontOptions,
@@ -8,15 +9,12 @@ import {
   defaultAppearance,
 } from "../../lib/appearance";
 import type { ThemeMode } from "../../lib/types";
+import type { LanguageState } from "../../mygo";
 import { SegmentedControl, Select } from "../../ui";
 
-const themes = [
-  { value: "light", label: "浅色", icon: Sun },
-  { value: "dark", label: "深色", icon: Moon },
-  { value: "system", label: "跟随系统", icon: Monitor },
-] as const;
-
 type GeneralSettingsProps = {
+  language: LanguageState | null;
+  onLanguageChange: (tag: string) => void;
   theme: ThemeMode;
   onThemeChange: (theme: ThemeMode) => void;
   appearance: Appearance;
@@ -25,23 +23,39 @@ type GeneralSettingsProps = {
 };
 
 export function GeneralSettings({
+  language,
+  onLanguageChange,
   theme,
   onThemeChange,
   appearance,
   systemFonts,
   onAppearanceChange,
 }: GeneralSettingsProps) {
+  const messages = useMessages();
   const interfaceFontOptions = useMemo(
-    () => buildFontOptions("interface", systemFonts, appearance.interfaceFont),
-    [appearance.interfaceFont, systemFonts],
+    () => buildFontOptions("interface", systemFonts, appearance.interfaceFont, messages),
+    [appearance.interfaceFont, messages, systemFonts],
   );
   const chatFontOptions = useMemo(
-    () => buildFontOptions("chat", systemFonts, appearance.chatFont),
-    [appearance.chatFont, systemFonts],
+    () => buildFontOptions("chat", systemFonts, appearance.chatFont, messages),
+    [appearance.chatFont, messages, systemFonts],
   );
   const codeFontOptions = useMemo(
-    () => buildFontOptions("code", systemFonts, appearance.codeFont),
-    [appearance.codeFont, systemFonts],
+    () => buildFontOptions("code", systemFonts, appearance.codeFont, messages),
+    [appearance.codeFont, messages, systemFonts],
+  );
+
+  const themes = [
+    { value: "light", label: messages.themeLight(), icon: Sun },
+    { value: "dark", label: messages.themeDark(), icon: Moon },
+    { value: "system", label: messages.themeSystem(), icon: Monitor },
+  ] as const;
+  const languageOptions = useMemo(
+    () => [
+      { value: "", label: messages.settingsLanguageSystem() },
+      ...(language?.languages ?? []).map((item) => ({ value: item.tag, label: item.label })),
+    ],
+    [language, messages],
   );
 
   function patch<K extends keyof Appearance>(key: K, value: Appearance[K]) {
@@ -59,16 +73,32 @@ export function GeneralSettings({
         <button
           type="button"
           className="appearance-reset"
-          title="重置主题、字体和字号；不会影响模型、搜索、记忆和个性化设置"
+          title={messages.appearanceResetTitle()}
           onClick={resetAppearance}
         >
-          恢复默认
+          {messages.appearanceReset()}
         </button>
       </div>
 
       <section className="settings-group">
+        <h3 className="settings-group-title">{messages.settingsLanguage()}</h3>
+        <p className="settings-description">{messages.settingsLanguageDescription()}</p>
+        <div className="appearance-list">
+          <div className="appearance-row">
+            <span>{messages.settingsLanguage()}</span>
+            <Select
+              label={messages.settingsLanguage()}
+              value={language?.chosen ?? ""}
+              options={languageOptions}
+              onChange={onLanguageChange}
+            />
+          </div>
+        </div>
+      </section>
+
+      <section className="settings-group">
         <SegmentedControl
-          label="主题"
+          label={messages.appearanceTheme()}
           value={theme}
           options={themes}
           optionClassName="theme-option"
@@ -77,12 +107,12 @@ export function GeneralSettings({
       </section>
 
       <section className="settings-group">
-        <h3 className="settings-group-title">界面</h3>
+        <h3 className="settings-group-title">{messages.appearanceInterface()}</h3>
         <div className="appearance-list">
           <div className="appearance-row">
-            <span>界面字体</span>
+            <span>{messages.appearanceInterfaceFont()}</span>
             <Select
-              label="界面字体"
+              label={messages.appearanceInterfaceFont()}
               value={appearance.interfaceFont}
               options={interfaceFontOptions}
               onChange={(value) => patch("interfaceFont", value)}
@@ -92,21 +122,21 @@ export function GeneralSettings({
       </section>
 
       <section className="settings-group">
-        <h3 className="settings-group-title">对话</h3>
+        <h3 className="settings-group-title">{messages.appearanceChat()}</h3>
         <div className="appearance-list">
           <div className="appearance-row">
-            <span>对话字体</span>
+            <span>{messages.appearanceChatFont()}</span>
             <Select
-              label="对话字体"
+              label={messages.appearanceChatFont()}
               value={appearance.chatFont}
               options={chatFontOptions}
               onChange={(value) => patch("chatFont", value)}
             />
           </div>
           <div className="appearance-row">
-            <span>对话字号</span>
+            <span>{messages.appearanceChatSize()}</span>
             <Select
-              label="对话字号"
+              label={messages.appearanceChatSize()}
               value={appearance.chatSize}
               options={chatSizeOptions}
               onChange={(value) => patch("chatSize", value)}
@@ -116,21 +146,21 @@ export function GeneralSettings({
       </section>
 
       <section className="settings-group">
-        <h3 className="settings-group-title">代码</h3>
+        <h3 className="settings-group-title">{messages.appearanceCode()}</h3>
         <div className="appearance-list">
           <div className="appearance-row">
-            <span>代码字体</span>
+            <span>{messages.appearanceCodeFont()}</span>
             <Select
-              label="代码字体"
+              label={messages.appearanceCodeFont()}
               value={appearance.codeFont}
               options={codeFontOptions}
               onChange={(value) => patch("codeFont", value)}
             />
           </div>
           <div className="appearance-row">
-            <span>代码字号</span>
+            <span>{messages.appearanceCodeSize()}</span>
             <Select
-              label="代码字号"
+              label={messages.appearanceCodeSize()}
               value={appearance.codeSize}
               options={codeSizeOptions}
               onChange={(value) => patch("codeSize", value)}

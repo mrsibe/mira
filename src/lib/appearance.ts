@@ -1,3 +1,5 @@
+import type { Messages } from "../locales";
+
 export type FontPreset = "system" | "humanist" | "serif" | "mono";
 export type CodeFontPreset = "system" | "modern" | "classic";
 export type FontFamilyChoice = `family:${string}`;
@@ -49,18 +51,33 @@ export const defaultAppearance: Appearance = {
 const interfacePresets: readonly FontPreset[] = ["system", "humanist", "serif", "mono"];
 const codePresets: readonly CodeFontPreset[] = ["system", "modern", "classic"];
 
-const fontLabels: Record<FontPreset, string> = {
-  system: "系统默认",
-  humanist: "人文无衬线",
-  serif: "衬线",
-  mono: "等宽",
-};
+function fontLabel(value: string, messages: Messages) {
+  switch (value) {
+    case "system":
+      return messages.fontSystemDefault();
+    case "humanist":
+      return messages.fontHumanist();
+    case "serif":
+      return messages.fontSerif();
+    case "mono":
+      return messages.fontMono();
+    default:
+      return value;
+  }
+}
 
-const codeFontLabels: Record<CodeFontPreset, string> = {
-  system: "系统等宽",
-  modern: "现代等宽",
-  classic: "经典等宽",
-};
+function codeFontLabel(value: string, messages: Messages) {
+  switch (value) {
+    case "system":
+      return messages.codeFontSystem();
+    case "modern":
+      return messages.codeFontModern();
+    case "classic":
+      return messages.codeFontClassic();
+    default:
+      return value;
+  }
+}
 
 export const chatSizeOptions: ReadonlyArray<SelectOption<ChatSize>> = [
   { value: "small", label: "14 px" },
@@ -94,23 +111,25 @@ export function buildFontOptions(
   context: "code",
   families: readonly string[],
   current: string,
+  messages: Messages,
 ): ReadonlyArray<SelectOption<CodeFontChoice>>;
 export function buildFontOptions(
   context: "interface" | "chat",
   families: readonly string[],
   current: string,
+  messages: Messages,
 ): ReadonlyArray<SelectOption<FontChoice>>;
 export function buildFontOptions(
   context: "interface" | "chat" | "code",
   families: readonly string[],
   current: string,
+  messages: Messages,
 ): ReadonlyArray<SelectOption<string>> {
   const code = context === "code";
   const presets: readonly string[] = code ? codePresets : interfacePresets;
-  const labels: Record<string, string> = code ? codeFontLabels : fontLabels;
   const options: SelectOption<string>[] = presets.map((value) => ({
     value,
-    label: labels[value] ?? value,
+    label: code ? codeFontLabel(value, messages) : fontLabel(value, messages),
     previewFont: resolveFontStack(value, context),
   }));
 
@@ -130,7 +149,7 @@ export function buildFontOptions(
       value: familyChoice(family),
       label: family,
       previewFont: quoteFontName(family),
-      group: "系统字体",
+      group: messages.fontGroupSystem(),
     });
   }
   return options;

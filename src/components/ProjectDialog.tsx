@@ -1,4 +1,5 @@
 import { type FormEvent, useEffect, useId, useRef, useState } from "react";
+import { useMessages } from "../i18n";
 import { Button, Input, Modal, Notice } from "../ui";
 
 type ProjectDialogProps = {
@@ -16,6 +17,7 @@ export function ProjectDialog({
   onClose,
   onSubmit,
 }: ProjectDialogProps) {
+  const t = useMessages();
   const titleID = useId();
   const inputID = useId();
   const inputRef = useRef<HTMLInputElement>(null);
@@ -33,7 +35,7 @@ export function ProjectDialog({
     if (saving) return;
     const trimmed = name.trim();
     if (!trimmed) {
-      setError("项目名称不能为空");
+      setError(t.projectNameRequired());
       return;
     }
     setSaving(true);
@@ -41,7 +43,7 @@ export function ProjectDialog({
     try {
       await onSubmit(trimmed);
     } catch (submitError) {
-      setError(submitError instanceof Error ? submitError.message : "保存项目失败");
+      setError(submitError instanceof Error ? submitError.message : t.projectSaveFailed());
     } finally {
       setSaving(false);
     }
@@ -61,7 +63,7 @@ export function ProjectDialog({
         </header>
         <div className="project-form-body">
           <label className="sr-only" htmlFor={inputID}>
-            项目名称
+            {t.projectName()}
           </label>
           <Input
             ref={inputRef}
@@ -69,7 +71,7 @@ export function ProjectDialog({
             value={name}
             maxLength={48}
             disabled={saving}
-            placeholder="项目名称"
+            placeholder={t.projectNamePlaceholder()}
             onChange={(event) => setName(event.target.value)}
           />
           {error && <Notice tone="error">{error}</Notice>}
@@ -77,10 +79,10 @@ export function ProjectDialog({
         <footer className="modal-actions">
           <span className="spacer" />
           <Button disabled={saving} onClick={onClose}>
-            取消
+            {t.commonCancel()}
           </Button>
           <Button type="submit" variant="primary" disabled={saving}>
-            {saving ? "保存中…" : submitLabel}
+            {saving ? t.commonSaving() : submitLabel}
           </Button>
         </footer>
       </form>

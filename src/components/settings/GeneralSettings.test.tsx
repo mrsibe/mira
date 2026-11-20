@@ -10,6 +10,8 @@ describe("GeneralSettings", () => {
 
     render(
       <GeneralSettings
+        language={null}
+        onLanguageChange={vi.fn()}
         theme="dark"
         onThemeChange={onThemeChange}
         appearance={{
@@ -33,6 +35,8 @@ describe("GeneralSettings", () => {
 
     render(
       <GeneralSettings
+        language={null}
+        onLanguageChange={vi.fn()}
         theme="system"
         onThemeChange={vi.fn()}
         appearance={defaultAppearance}
@@ -53,6 +57,8 @@ describe("GeneralSettings", () => {
   it("uses numeric size labels without semantic prefixes", () => {
     render(
       <GeneralSettings
+        language={null}
+        onLanguageChange={vi.fn()}
         theme="system"
         onThemeChange={vi.fn()}
         appearance={defaultAppearance}

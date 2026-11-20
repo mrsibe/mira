@@ -1,5 +1,6 @@
 import { ArrowLeft, Check, ChevronRight, FolderInput, Pencil, Plus, Trash2 } from "lucide-react";
 import { useState } from "react";
+import { useMessages } from "../i18n";
 import type { Conversation, Project } from "../mygo";
 import { PopupMenu } from "../ui";
 
@@ -24,6 +25,7 @@ export function ConversationMenu({
   onDelete,
   onCreateProject,
 }: ConversationMenuProps) {
+  const t = useMessages();
   const [step, setStep] = useState<"root" | "move">("root");
   const [busy, setBusy] = useState(false);
   const knownProject = projects.some((project) => project.id === conversation.projectId);
@@ -41,7 +43,7 @@ export function ConversationMenu({
     <PopupMenu
       key={step}
       anchor={anchor}
-      label="对话操作"
+      label={t.sidebarConversationActions()}
       className="sidebar-popup"
       onClose={onClose}
     >
@@ -57,7 +59,7 @@ export function ConversationMenu({
             }}
           >
             <Pencil size={15} />
-            <span>编辑标题</span>
+            <span>{t.sidebarEditTitle()}</span>
           </button>
           <button
             type="button"
@@ -66,7 +68,7 @@ export function ConversationMenu({
             onClick={() => setStep("move")}
           >
             <FolderInput size={15} />
-            <span>移动分类</span>
+            <span>{t.sidebarMoveCategory()}</span>
             <ChevronRight size={15} className="popup-menu-trailing" />
           </button>
           <div className="popup-menu-separator" />
@@ -80,7 +82,7 @@ export function ConversationMenu({
             }}
           >
             <Trash2 size={15} />
-            <span>删除</span>
+            <span>{t.commonDelete()}</span>
           </button>
         </>
       ) : (
@@ -89,13 +91,13 @@ export function ConversationMenu({
             <button
               type="button"
               className="popup-menu-back"
-              aria-label="返回"
-              title="返回"
+              aria-label={t.sidebarBack()}
+              title={t.sidebarBack()}
               onClick={() => setStep("root")}
             >
               <ArrowLeft size={15} />
             </button>
-            <span>移动到项目</span>
+            <span>{t.sidebarMoveToProject()}</span>
           </div>
           <div className="popup-menu-scroll">
             <button
@@ -106,7 +108,7 @@ export function ConversationMenu({
               disabled={busy}
               onClick={() => void move("")}
             >
-              <span>未分类</span>
+              <span>{t.sidebarUnfiled()}</span>
               {currentProjectID === "" && <Check size={15} className="popup-menu-trailing" />}
             </button>
             {projects.map((project) => {
@@ -138,7 +140,7 @@ export function ConversationMenu({
             }}
           >
             <Plus size={15} />
-            <span>新建项目…</span>
+            <span>{t.sidebarCreateProjectEllipsis()}</span>
           </button>
         </>
       )}
@@ -155,10 +157,11 @@ type ProjectMenuProps = {
 };
 
 export function ProjectMenu({ project, anchor, onClose, onRename, onDelete }: ProjectMenuProps) {
+  const t = useMessages();
   return (
     <PopupMenu
       anchor={anchor}
-      label={`${project.name} 项目操作`}
+      label={t.sidebarProjectActionsLabel(project.name)}
       className="sidebar-popup"
       onClose={onClose}
     >
@@ -172,7 +175,7 @@ export function ProjectMenu({ project, anchor, onClose, onRename, onDelete }: Pr
         }}
       >
         <Pencil size={15} />
-        <span>重命名项目</span>
+        <span>{t.sidebarRenameProject()}</span>
       </button>
       <div className="popup-menu-separator" />
       <button
@@ -185,7 +188,7 @@ export function ProjectMenu({ project, anchor, onClose, onRename, onDelete }: Pr
         }}
       >
         <Trash2 size={15} />
-        <span>删除项目</span>
+        <span>{t.sidebarDeleteProject()}</span>
       </button>
     </PopupMenu>
   );

@@ -1,6 +1,7 @@
 import { AlertCircle, ChevronRight } from "lucide-react";
 import { lazy, Suspense, useMemo, useState } from "react";
 import { uiStateKey } from "../../genui/storage";
+import { useMessages } from "../../i18n";
 import {
   type AssistantTurnView,
   buildCompletedTurn,
@@ -36,7 +37,8 @@ export function CompletedTurn({
   onRegenerate?: (messageIndex: number) => void;
   onFork?: (messageIndex: number) => void;
 }) {
-  const view = useMemo(() => buildCompletedTurn(messages, tools), [messages, tools]);
+  const t = useMessages();
+  const view = useMemo(() => buildCompletedTurn(messages, tools, t), [messages, tools, t]);
   const actionIndex = messages[0]?.index;
   const completed = view.messageIndex !== undefined && actionIndex !== undefined;
   return (
@@ -71,7 +73,8 @@ export function LiveTurn({
   intelligentUIEnabled: boolean;
   onAskAgent: (message: string) => void;
 }) {
-  const view = useMemo(() => buildLiveTurn(run), [run]);
+  const t = useMessages();
+  const view = useMemo(() => buildLiveTurn(run, t), [run, t]);
   return (
     <AssistantTurn
       view={view}
@@ -106,6 +109,7 @@ function AssistantTurn({
   onRegenerate?: () => void;
   onFork?: () => void;
 }) {
+  const t = useMessages();
   const { activity, answer, error, streaming, thinkingDurationMs, segments } = view;
   const hasAnswer = answer.trim().length > 0;
   const hasSpec = intelligentUIEnabled && segments.some((segment) => segment.kind === "spec");
@@ -114,8 +118,8 @@ function AssistantTurn({
   const [open, setOpen] = useState(!live && !hasContent);
   const activityLabel =
     thinkingDurationMs !== undefined && thinkingDurationMs > 0
-      ? `思考了 ${formatThoughtDuration(thinkingDurationMs)}`
-      : "思考过程";
+      ? t.threadThinkingFor(formatThoughtDuration(thinkingDurationMs))
+      : t.threadThinking();
   const storageKey = uiStateKey(conversationId, view.messageIndex);
 
   return (
@@ -172,7 +176,7 @@ function AssistantTurn({
           <div className="error-card">
             <AlertCircle size={17} />
             <div>
-              <strong>生成失败</strong>
+              <strong>{t.threadGenerationFailed()}</strong>
               <p>{error}</p>
             </div>
           </div>
@@ -193,18 +197,19 @@ function GenUIBlock({
   storageKey: string;
   onAskAgent: (message: string) => void;
 }) {
+  const t = useMessages();
   if (spec.status === "invalid") {
     return (
       <div className="genui-failure" role="status">
-        界面暂时无法显示：{spec.error ?? "界面描述不完整。"}
+        {t.threadSpecUnavailable(spec.error ?? t.threadSpecIncomplete())}
       </div>
     );
   }
   if (!spec.spec.root) {
-    return <div className="genui-loading">正在准备界面…</div>;
+    return <div className="genui-loading">{t.threadPreparingSpec()}</div>;
   }
   return (
-    <Suspense fallback={<div className="genui-loading">正在准备界面…</div>}>
+    <Suspense fallback={<div className="genui-loading">{t.threadPreparingSpec()}</div>}>
       <GenUIRenderer
         spec={spec.spec}
         loading={spec.status === "streaming"}
