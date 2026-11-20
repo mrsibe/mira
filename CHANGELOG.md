@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- 支持简体中文与英文界面：首次启动跟随系统语言，可在“设置 → 外观 → 语言”切换并持久化。
+- 界面文案、Go 错误、默认会话/项目名、工具描述与结果、记忆摘要提示词全部迁入 MyGo catalog。
+- 模型提示词、工具说明和搜索 `Accept-Language` 跟随当前语言。
+- 记忆文件 USER.md 使用语言无关的英文标题，并自动迁移历史中文标题。
 - 升级 GOAT 至 v0.5.0，新增 OpenAI、Azure OpenAI、Google Gemini、Anthropic、
   DeepSeek、OpenRouter、xAI 和自定义 OpenAI 兼容端点的模型适配。
 - 模型配置升级到 schema v2：支持保存多个模型、切换当前模型，并为每个模型

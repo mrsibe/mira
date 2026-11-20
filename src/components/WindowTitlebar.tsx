@@ -1,4 +1,5 @@
 import { PanelLeft } from "lucide-react";
+import { useMessages } from "../i18n";
 import { IconButton } from "../ui";
 
 type WindowTitlebarProps = {
@@ -8,11 +9,12 @@ type WindowTitlebarProps = {
 };
 
 export function WindowTitlebar({ sidebarOpen, title, onToggleSidebar }: WindowTitlebarProps) {
+  const t = useMessages();
   return (
     <header className="window-titlebar">
       <div className="window-titlebar-leading">
         <IconButton
-          label={sidebarOpen ? "收起侧栏" : "展开侧栏"}
+          label={sidebarOpen ? t.sidebarCollapse() : t.sidebarExpand()}
           className="window-titlebar-toggle"
           aria-expanded={sidebarOpen}
           onClick={onToggleSidebar}

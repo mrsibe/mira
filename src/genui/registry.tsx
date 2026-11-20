@@ -14,6 +14,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import { useMessages } from "../i18n";
 import { genUICatalog } from "./catalog";
 
 const chartColors = [
@@ -68,8 +69,9 @@ const genUIComponents = {
     );
   },
   Table: ({ props }) => {
+    const t = useMessages();
     if (props.rows.length === 0) {
-      return <p className="genui-empty">{props.emptyText ?? "暂无数据"}</p>;
+      return <p className="genui-empty">{props.emptyText ?? t.genuiEmpty()}</p>;
     }
     return (
       <figure className="genui-table-figure">
@@ -88,7 +90,7 @@ const genUIComponents = {
               {props.rows.map((row, index) => (
                 <tr key={String(row.id ?? index)}>
                   {props.columns.map((column) => (
-                    <td key={column.key}>{formatCell(row[column.key])}</td>
+                    <td key={column.key}>{formatCell(row[column.key], t)}</td>
                   ))}
                 </tr>
               ))}
@@ -100,12 +102,15 @@ const genUIComponents = {
     );
   },
   Chart: ({ props }) => {
+    const t = useMessages();
     const data = props.data.map((row) => ({
       label: String(row[props.xKey] ?? ""),
       value: toNumber(row[props.yKey]),
     }));
     const height = props.size === "lg" ? 300 : 220;
-    const summary = data.map((item) => `${item.label} ${item.value}${props.unit ?? ""}`).join("，");
+    const summary = data
+      .map((item) => `${item.label} ${item.value}${props.unit ?? ""}`)
+      .join(t.genuiListSeparator());
     return (
       <figure className="genui-chart">
         {props.title && <figcaption>{props.title}</figcaption>}
@@ -125,7 +130,7 @@ const genUIComponents = {
                   tickLine={false}
                   tick={{ fill: "var(--text-tertiary)", fontSize: 11 }}
                 />
-                <Tooltip {...tooltipProps(props.unit)} />
+                <Tooltip {...tooltipProps(props.unit, t)} />
                 <Bar dataKey="value" fill="var(--chart-1)" radius={[5, 5, 0, 0]} />
               </BarChart>
             ) : props.variant === "line" ? (
@@ -142,7 +147,7 @@ const genUIComponents = {
                   tickLine={false}
                   tick={{ fill: "var(--text-tertiary)", fontSize: 11 }}
                 />
-                <Tooltip {...tooltipProps(props.unit)} />
+                <Tooltip {...tooltipProps(props.unit, t)} />
                 <Line
                   type="monotone"
                   dataKey="value"
@@ -154,7 +159,7 @@ const genUIComponents = {
               </LineChart>
             ) : (
               <PieChart>
-                <Tooltip {...tooltipProps(props.unit)} />
+                <Tooltip {...tooltipProps(props.unit, t)} />
                 <Pie
                   data={data}
                   dataKey="value"
@@ -216,6 +221,7 @@ const genUIComponents = {
     );
   },
   Select: ({ props, bindings, loading }) => {
+    const t = useMessages();
     const [value, setValue] = useBoundProp<string | null>(props.value ?? null, bindings?.value);
     return (
       <label className="genui-field">
@@ -226,7 +232,7 @@ const genUIComponents = {
           onChange={(event) => setValue(event.target.value)}
         >
           <option value="" disabled>
-            {props.placeholder ?? "请选择"}
+            {props.placeholder ?? t.genuiSelectPlaceholder()}
           </option>
           {props.options.map((option) => (
             <option key={option.value} value={option.value}>
@@ -308,9 +314,9 @@ function toNumber(value: unknown) {
   return Number.isFinite(number) ? number : 0;
 }
 
-function formatCell(value: unknown) {
+function formatCell(value: unknown, t: ReturnType<typeof useMessages>) {
   if (value === null || value === undefined) return "—";
-  if (typeof value === "boolean") return value ? "是" : "否";
+  if (typeof value === "boolean") return value ? t.commonYes() : t.commonNo();
   if (typeof value === "string" || typeof value === "number") return String(value);
   return JSON.stringify(value);
 }
@@ -324,7 +330,7 @@ function safeExternalHref(raw: string) {
   }
 }
 
-function tooltipProps(unit: string | null) {
+function tooltipProps(unit: string | null, t: ReturnType<typeof useMessages>) {
   return {
     cursor: false as const,
     contentStyle: {
@@ -336,6 +342,7 @@ function tooltipProps(unit: string | null) {
       fontSize: 12,
     },
     labelStyle: { color: "var(--text-secondary)" },
-    formatter: (value: unknown) => [`${value}${unit ?? ""}`, "数值"] as [string, string],
+    formatter: (value: unknown) =>
+      [`${value}${unit ?? ""}`, t.genuiNumberLabel()] as [string, string],
   };
 }

@@ -46,6 +46,26 @@ bun run dev
 bun run generate
 ```
 
+## 多语言文案
+
+界面、Go 错误、工具描述和提示词都走 MyGo 内置的 catalog：
+
+- `locales/zh-Hans.json`：源语言，带 `@key` 描述和 placeholder 类型。
+- `locales/en.json`：英文翻译。
+- `locales/catalog_gen.go`、`src/locales.ts`：`mygo generate` 生成，必须提交。
+
+新增或修改文案时：
+
+1. 先改 `locales/zh-Hans.json`，需要参数时在 `@key.placeholders` 声明类型。
+2. 在 `locales/en.json` 补英文。
+3. 运行 `bun run generate`。
+4. 前端用 `useMessages()` 取 `messagesIn(locale)`，Go 用 `locales.Xxx()`；不要写死用户可见文本。
+5. 运行 `bun run i18n:check`，确保两种语言的参数和 plural 形式一致。
+
+语言的唯一状态是 `mygo.App.Locale()`：首次启动跟随系统，设置页通过
+`Mira.setLanguage` 覆盖并持久化。新增语言时，在 `locales/` 增加 `<tag>.json`，
+再运行生成即可；MyGo 自带的控件文案会自动跟随。
+
 修改 `src/genui/catalog.ts` 后，同步后端嵌入的组件提示词：
 
 ```bash

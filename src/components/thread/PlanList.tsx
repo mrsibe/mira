@@ -1,11 +1,13 @@
 import { Check } from "lucide-react";
+import { useMessages } from "../../i18n";
 import { activeTitle } from "../../lib/activity";
 import type { PlanStep } from "../../lib/types";
 
 export function PlanList({ steps }: { steps: PlanStep[] }) {
+  const t = useMessages();
   return (
     <div className="plan">
-      <ol className="plan-list" aria-label="执行计划">
+      <ol className="plan-list" aria-label={t.threadPlanLabel()}>
         {steps.map((step) => (
           <li
             key={step.title}
@@ -20,7 +22,7 @@ export function PlanList({ steps }: { steps: PlanStep[] }) {
               )}
             </span>
             <span className="plan-title">
-              {step.status === "in_progress" ? activeTitle(step.title) : step.title}
+              {step.status === "in_progress" ? activeTitle(step.title, t) : step.title}
             </span>
           </li>
         ))}

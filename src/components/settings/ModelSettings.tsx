@@ -1,5 +1,6 @@
 import { Check, Pencil, Plus, Trash2 } from "lucide-react";
 import { useState } from "react";
+import { useMessages } from "../../i18n";
 import type { ModelView, View } from "../../mygo";
 import { Button, Field, IconButton, Select } from "../../ui";
 
@@ -12,13 +13,6 @@ type ModelSettingsProps = {
   onError: (message: string) => void;
 };
 
-const storageLabels: Record<string, string> = {
-  keychain: "密钥已存入钥匙串",
-  environment: "密钥来自环境变量",
-  session: "密钥仅在本次会话有效",
-  none: "未配置密钥",
-};
-
 export function ModelSettings({
   settings,
   onActivateModel,
@@ -27,6 +21,13 @@ export function ModelSettings({
   onDeleteModel,
   onError,
 }: ModelSettingsProps) {
+  const t = useMessages();
+  const storageLabels: Record<string, string> = {
+    keychain: t.modelStorageKeychain(),
+    environment: t.modelStorageEnvironment(),
+    session: t.modelStorageSession(),
+    none: t.modelStorageNone(),
+  };
   const [pendingDelete, setPendingDelete] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const models = settings.models;
@@ -38,7 +39,7 @@ export function ModelSettings({
     try {
       await onActivateModel(id);
     } catch (error) {
-      onError(error instanceof Error ? error.message : "切换模型失败");
+      onError(error instanceof Error ? error.message : t.modelActivateFailed());
     } finally {
       setBusy(false);
     }
@@ -52,7 +53,7 @@ export function ModelSettings({
       await onDeleteModel(id);
       setPendingDelete(null);
     } catch (error) {
-      onError(error instanceof Error ? error.message : "删除模型失败");
+      onError(error instanceof Error ? error.message : t.modelDeleteFailed());
     } finally {
       setBusy(false);
     }
@@ -61,17 +62,17 @@ export function ModelSettings({
   return (
     <section className="settings-group model-settings">
       <div>
-        <h3 className="settings-group-title">模型</h3>
-        <p className="settings-description">添加多个模型，并随时切换当前使用的模型。</p>
+        <h3 className="settings-group-title">{t.modelTitle()}</h3>
+        <p className="settings-description">{t.modelDescription()}</p>
       </div>
 
       {models.length > 0 && (
-        <Field label="当前模型">
+        <Field label={t.modelCurrent()}>
           {(id) => (
             <Select
               id={id}
               className="settings-select"
-              label="当前模型"
+              label={t.modelCurrent()}
               value={settings.activeModelId}
               options={models.map((model) => ({
                 value: model.id,
@@ -86,10 +87,10 @@ export function ModelSettings({
 
       {models.length === 0 ? (
         <div className="model-empty">
-          <p>还没有模型。添加一个模型后即可开始对话。</p>
+          <p>{t.modelEmpty()}</p>
           <Button variant="primary" onClick={onAddModel}>
             <Plus size={16} />
-            添加模型
+            {t.modelAdd()}
           </Button>
         </div>
       ) : (
@@ -104,7 +105,7 @@ export function ModelSettings({
                     {active && (
                       <span className="model-active-badge">
                         <Check size={12} />
-                        当前
+                        {t.modelActive()}
                       </span>
                     )}
                   </div>
@@ -113,8 +114,8 @@ export function ModelSettings({
                   </p>
                   <span className={`model-key-status ${model.configured ? "" : "warning"}`}>
                     {model.configured
-                      ? (storageLabels[model.apiKeyStorage] ?? "已配置")
-                      : "需要补充连接信息"}
+                      ? (storageLabels[model.apiKeyStorage] ?? t.modelConfigured())
+                      : t.modelNeedsConnection()}
                   </span>
                 </div>
                 <div className="model-item-actions">
@@ -125,16 +126,16 @@ export function ModelSettings({
                         disabled={busy}
                         onClick={() => void remove(model.id)}
                       >
-                        确认删除
+                        {t.modelConfirmDelete()}
                       </Button>
                       <Button disabled={busy} onClick={() => setPendingDelete(null)}>
-                        取消
+                        {t.commonCancel()}
                       </Button>
                     </>
                   ) : (
                     <>
                       <IconButton
-                        label={`编辑 ${model.name}`}
+                        label={t.modelEditLabel(model.name)}
                         disabled={busy}
                         onClick={() => onEditModel(model)}
                       >
@@ -142,7 +143,7 @@ export function ModelSettings({
                       </IconButton>
                       <IconButton
                         className="model-delete"
-                        label={`删除 ${model.name}`}
+                        label={t.modelDeleteLabel(model.name)}
                         disabled={busy}
                         onClick={() => setPendingDelete(model.id)}
                       >
@@ -156,7 +157,7 @@ export function ModelSettings({
           })}
           <Button className="model-add" onClick={onAddModel}>
             <Plus size={16} />
-            新增模型
+            {t.modelAddNew()}
           </Button>
         </div>
       )}

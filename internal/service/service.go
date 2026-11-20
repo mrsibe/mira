@@ -4,20 +4,22 @@ package service
 import (
 	"context"
 	"errors"
-	"fmt"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/egoist/mygo"
+	"github.com/egoist/mygo/i18n"
 	"github.com/mrsibe/goat/agent"
 	"github.com/mrsibe/goat/ai"
 	"github.com/mrsibe/mira/internal/chat"
 	"github.com/mrsibe/mira/internal/config"
 	"github.com/mrsibe/mira/internal/fonts"
+	"github.com/mrsibe/mira/internal/localerr"
 	"github.com/mrsibe/mira/internal/memory"
 	"github.com/mrsibe/mira/internal/prompt"
 	"github.com/mrsibe/mira/internal/store"
+	"github.com/mrsibe/mira/locales"
 )
 
 const (
@@ -25,8 +27,8 @@ const (
 )
 
 var (
-	errBusy          = errors.New("正在生成回复，请先停止当前回复")
-	errNotConfigured = errors.New("请先添加并启用模型")
+	errBusy          = localerr.New(locales.ErrBusy)
+	errNotConfigured = localerr.New(locales.ErrNotConfigured)
 )
 
 // Service is bound to the page as `Mira`.
@@ -61,6 +63,47 @@ func New(
 	}
 }
 
+// LanguageOption is one language the app is written in.
+type LanguageOption struct {
+	Tag   string `json:"tag"`
+	Label string `json:"label"`
+}
+
+// LanguageState is the language the app shows and the one the user chose.
+type LanguageState struct {
+	Effective string           `json:"effective"`
+	Chosen    string           `json:"chosen"`
+	Languages []LanguageOption `json:"languages"`
+}
+
+func currentLanguage() LanguageState {
+	tags := mygo.App.Languages()
+	options := make([]LanguageOption, 0, len(tags))
+	for _, tag := range tags {
+		options = append(options, LanguageOption{Tag: tag, Label: i18n.Autonym(tag)})
+	}
+	return LanguageState{
+		Effective: mygo.App.Locale(),
+		Chosen:    mygo.App.ChosenLocale(),
+		Languages: options,
+	}
+}
+
+// Language returns the app's language preferences.
+func (s *Service) Language() LanguageState {
+	return currentLanguage()
+}
+
+// SetLanguage shows the language of tag, or follows the system for "".
+func (s *Service) SetLanguage(tag string) (LanguageState, error) {
+	tag = strings.TrimSpace(tag)
+	if tag != "" && i18n.Normalize(tag) == "" {
+		return LanguageState{}, errors.New(locales.ErrUnsupportedLanguage(tag))
+	}
+	mygo.App.SetLocale(tag)
+	return currentLanguage(), nil
+}
+
 // Bootstrap is the first call the page makes.
 type Bootstrap struct {
 	Settings             config.View           `json:"settings"`
@@ -70,6 +113,7 @@ type Bootstrap struct {
 	ActiveConversationID string                `json:"activeConversationId,omitempty"`
 	Version              string                `json:"version"`
 	ConfigError          string                `json:"configError,omitempty"`
+	Language             LanguageState         `json:"language"`
 }
 
 // ConversationDetail restores one thread.
@@ -102,6 +146,7 @@ func (s *Service) Bootstrap() Bootstrap {
 		Conversations: s.store.List(),
 		Projects:      s.store.ListProjects(),
 		Version:       mygo.App.Version(),
+		Language:      currentLanguage(),
 	}
 	if err := s.cfg.LoadError(); err != nil {
 		result.ConfigError = err.Error()
@@ -155,7 +200,7 @@ func (s *Service) DeleteProject(id string) error {
 	if activeID != "" {
 		for _, conversation := range s.store.List() {
 			if conversation.ID == activeID && conversation.ProjectID == id {
-				return errors.New("正在生成回复，无法删除该项目")
+				return errors.New(locales.ErrDeleteActiveProject())
 			}
 		}
 	}
@@ -227,7 +272,7 @@ func (s *Service) DeleteConversation(id string) error {
 	busy := s.active != nil && s.active.conversationID == id
 	s.mu.Unlock()
 	if busy {
-		return errors.New("正在生成回复，无法删除该会话")
+		return errors.New(locales.ErrDeleteActiveConversation())
 	}
 	if err := s.store.Delete(id); err != nil {
 		return err
@@ -261,7 +306,7 @@ func (s *Service) GetMemory() memory.View {
 // SaveMemory updates the automatic memory summary.
 func (s *Service) SaveMemory(input memory.SaveInput) (memory.View, error) {
 	if s.memory == nil {
-		return memory.View{}, errors.New("记忆功能未初始化")
+		return memory.View{}, errors.New(locales.ErrMemoryNotInitialized())
 	}
 	return s.memory.Save(input)
 }
@@ -269,7 +314,7 @@ func (s *Service) SaveMemory(input memory.SaveInput) (memory.View, error) {
 // RegenerateMemory rebuilds the memory summary now.
 func (s *Service) RegenerateMemory() (memory.View, error) {
 	if s.memory == nil {
-		return memory.View{}, errors.New("记忆功能未初始化")
+		return memory.View{}, errors.New(locales.ErrMemoryNotInitialized())
 	}
 	if !s.cfg.View().Configured {
 		return memory.View{}, errNotConfigured
@@ -282,7 +327,7 @@ func (s *Service) RegenerateMemory() (memory.View, error) {
 // ClearMemory removes the automatic memory summary.
 func (s *Service) ClearMemory() (memory.View, error) {
 	if s.memory == nil {
-		return memory.View{}, errors.New("记忆功能未初始化")
+		return memory.View{}, errors.New(locales.ErrMemoryNotInitialized())
 	}
 	return s.memory.Clear()
 }
@@ -374,10 +419,10 @@ func (s *Service) editMessage(
 ) error {
 	content = strings.TrimSpace(content)
 	if content == "" {
-		return errors.New("消息不能为空")
+		return errors.New(locales.ErrMessageRequired())
 	}
 	if len([]rune(content)) > maxInputRunes {
-		return fmt.Errorf("消息过长，最多 %d 个字符", maxInputRunes)
+		return errors.New(locales.ErrMessageTooLong(maxInputRunes))
 	}
 	if err := validateSendOptions(options); err != nil {
 		return err
@@ -467,10 +512,10 @@ func (s *Service) run(
 ) error {
 	content = strings.TrimSpace(content)
 	if content == "" {
-		return errors.New("消息不能为空")
+		return errors.New(locales.ErrMessageRequired())
 	}
 	if len([]rune(content)) > maxInputRunes {
-		return fmt.Errorf("消息过长，最多 %d 个字符", maxInputRunes)
+		return errors.New(locales.ErrMessageTooLong(maxInputRunes))
 	}
 	if err := validateSendOptions(options); err != nil {
 		return err
@@ -492,7 +537,7 @@ func validateSendOptions(options SendOptions) error {
 	case "", "low", "medium", "high":
 		return nil
 	default:
-		return fmt.Errorf("不支持的思维强度: %q", options.ReasoningEffort)
+		return errors.New(locales.ErrUnsupportedReasoningEffort(options.ReasoningEffort))
 	}
 }
 
@@ -511,7 +556,7 @@ func (s *Service) executeRun(
 		return err
 	}
 	if conversation.ID == "" {
-		return errors.New("会话不存在")
+		return errors.New(locales.ErrConversationNotFound())
 	}
 	reasoningEffort := strings.TrimSpace(options.ReasoningEffort)
 	runStarted := time.Now()
@@ -664,7 +709,7 @@ func (s *Service) executeRun(
 		emit(chat.ChatEvent{
 			Type:  chat.EventError,
 			Code:  "persist_failed",
-			Error: "保存会话失败：" + persistErr.Error(),
+			Error: locales.ErrSaveConversationFailed() + ": " + persistErr.Error(),
 		})
 		return nil
 	}
@@ -675,7 +720,7 @@ func (s *Service) executeRun(
 			emit(chat.ChatEvent{
 				Type:  chat.EventError,
 				Code:  "usage_failed",
-				Error: "保存用量失败：" + err.Error(),
+				Error: locales.ErrSaveUsageFailed() + ": " + err.Error(),
 			})
 			return nil
 		}
@@ -695,10 +740,7 @@ func (s *Service) executeRun(
 				Type:  chat.EventError,
 				Code:  "max_steps",
 				Usage: usage,
-				Error: fmt.Sprintf(
-					"这次任务已达到单次 %d 个模型轮次的上限。当前进度已保存，回复“继续”可以接着完成。",
-					chat.MaxSteps,
-				),
+				Error: locales.ErrMaxRounds(chat.MaxSteps),
 			})
 			return nil
 		}
@@ -841,7 +883,7 @@ func repairToolHistory(history []ai.Message) []ai.Message {
 			repaired = append(repaired, ai.ToolTextMessage(
 				call.ID,
 				call.Name,
-				"工具调用未完成（上一条回复被中止）。",
+				locales.ErrToolCallIncomplete(),
 				true,
 			))
 		}

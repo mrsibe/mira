@@ -1,5 +1,6 @@
 import { Check, Copy, GitBranch, RefreshCw } from "lucide-react";
 import { useState } from "react";
+import { useMessages } from "../../i18n";
 import { copyText, formatTokens, usageDetails } from "../../lib/format";
 import type { UsageView } from "../../mygo";
 
@@ -18,6 +19,7 @@ export function MessageActions({
   onRegenerate,
   onFork,
 }: MessageActionsProps) {
+  const messages = useMessages();
   const [copied, setCopied] = useState(false);
   const hasText = text.trim().length > 0;
 
@@ -31,26 +33,31 @@ export function MessageActions({
             setCopied(true);
             window.setTimeout(() => setCopied(false), 1400);
           }}
-          title="复制回复"
+          title={messages.threadCopyReply()}
         >
           {copied ? <Check size={14} /> : <Copy size={14} />}
-          <span>{copied ? "已复制" : "复制"}</span>
+          <span>{copied ? messages.commonCopied() : messages.commonCopy()}</span>
         </button>
       )}
       {onRegenerate && (
-        <button type="button" onClick={onRegenerate} disabled={busy} title="重新生成">
+        <button
+          type="button"
+          onClick={onRegenerate}
+          disabled={busy}
+          title={messages.threadRegenerate()}
+        >
           <RefreshCw size={14} />
-          <span>重新生成</span>
+          <span>{messages.threadRegenerate()}</span>
         </button>
       )}
       {onFork && (
-        <button type="button" onClick={onFork} disabled={busy} title="从这里分叉新对话">
+        <button type="button" onClick={onFork} disabled={busy} title={messages.threadForkTitle()}>
           <GitBranch size={14} />
-          <span>分叉</span>
+          <span>{messages.threadFork()}</span>
         </button>
       )}
       {usage && usage.totalTokens > 0 && (
-        <span className="message-usage" title={usageDetails(usage)}>
+        <span className="message-usage" title={usageDetails(usage, messages)}>
           {formatTokens(usage.totalTokens)} tokens
         </span>
       )}

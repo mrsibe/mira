@@ -1,4 +1,5 @@
 import { Eye, EyeOff, KeyRound } from "lucide-react";
+import { useMessages } from "../../i18n";
 import type { View } from "../../mygo";
 import { Button, Field, IconButton, Input, SegmentedControl, Switch } from "../../ui";
 import { KeyStorageStatus } from "./KeyStorageStatus";
@@ -24,22 +25,23 @@ export function SearchSettings({
   onClearTavilyKey,
   onError,
 }: SearchSettingsProps) {
+  const t = useMessages();
   return (
     <section className="settings-group">
-      <h3 className="settings-group-title">联网搜索</h3>
+      <h3 className="settings-group-title">{t.searchWebTitle()}</h3>
       <Switch
         checked={draft.webSearchEnabled}
-        title="启用"
-        description="需要最新信息时搜索网页并引用来源。"
+        title={t.searchEnable()}
+        description={t.searchEnableDescription()}
         onChange={() => setField("webSearchEnabled", !draft.webSearchEnabled)}
       />
 
       {draft.webSearchEnabled && (
         <>
           <div className="settings-subgroup">
-            <span className="settings-label">搜索来源</span>
+            <span className="settings-label">{t.searchSource()}</span>
             <SegmentedControl
-              label="搜索供应商"
+              label={t.searchProvider()}
               value={draft.searchProvider}
               options={providers}
               className="search-provider-options"
@@ -59,11 +61,13 @@ export function SearchSettings({
                       type={draft.showTavilyKey ? "text" : "password"}
                       value={draft.tavilyApiKey}
                       onChange={(event) => setField("tavilyApiKey", event.target.value)}
-                      placeholder={settings.hasTavilyApiKey ? "已保存，留空表示不修改" : "tvly-…"}
+                      placeholder={
+                        settings.hasTavilyApiKey ? t.searchTavilyKeySavedPlaceholder() : "tvly-…"
+                      }
                       spellCheck={false}
                     />
                     <IconButton
-                      label={draft.showTavilyKey ? "隐藏密钥" : "显示密钥"}
+                      label={draft.showTavilyKey ? t.commonHideKey() : t.commonShowKey()}
                       onClick={() => setField("showTavilyKey", !draft.showTavilyKey)}
                     >
                       {draft.showTavilyKey ? <EyeOff size={15} /> : <Eye size={15} />}
@@ -90,11 +94,11 @@ export function SearchSettings({
                       );
                       setField("tavilyApiKey", "");
                     } catch (error) {
-                      onError(error instanceof Error ? error.message : "清除失败");
+                      onError(error instanceof Error ? error.message : t.searchClearFailed());
                     }
                   }}
                 >
-                  清除已保存的 Tavily Key
+                  {t.searchClearTavily()}
                 </Button>
               )}
             </div>

@@ -25,6 +25,7 @@ import (
 	"github.com/mrsibe/mira/internal/memory"
 	"github.com/mrsibe/mira/internal/prompt"
 	"github.com/mrsibe/mira/internal/search"
+	"github.com/mrsibe/mira/locales"
 )
 
 const (
@@ -258,7 +259,7 @@ func TestModel(ctx context.Context, settings config.Settings) error {
 	for {
 		event, nextErr := stream.Next()
 		if errors.Is(nextErr, io.EOF) {
-			return errors.New("连接已关闭，未收到模型响应")
+			return errors.New(locales.ErrConnectionClosed())
 		}
 		if nextErr != nil {
 			return nextErr
@@ -366,7 +367,7 @@ func FromMessage(message ai.Message, index int) UIMessage {
 			}
 			result.Blocks = append(result.Blocks, UIBlock{Type: "tool_call", ToolCall: call})
 		case ai.BlockImage:
-			result.Blocks = append(result.Blocks, UIBlock{Type: "text", Text: "[图片]"})
+			result.Blocks = append(result.Blocks, UIBlock{Type: "text", Text: locales.ImagePlaceholder()})
 		}
 	}
 	return result
@@ -397,13 +398,13 @@ func UsageViewFrom(usage ai.Usage) *UsageView {
 func currentTimeTool() agent.Tool {
 	return agent.NewTextTool(agent.ToolSpec{
 		Name:        "get_current_time",
-		Description: "返回当前日期和时间。可以传入 IANA 时区，例如 Asia/Shanghai。",
+		Description: locales.ToolCurrentTimeDescription(),
 		Parameters: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
 				"timezone": map[string]any{
 					"type":        "string",
-					"description": "可选 IANA 时区名称，默认使用本机时区。",
+					"description": locales.ToolCurrentTimeZoneDescription(),
 				},
 			},
 			"additionalProperties": false,
@@ -437,9 +438,8 @@ type planStep struct {
 
 func updatePlanTool() agent.Tool {
 	return agent.NewTool(agent.ToolSpec{
-		Name: updatePlanToolName,
-		Description: "为需要多步工具调用、比较研究或外部事实核查的任务创建或更新执行计划。" +
-			"简单问题不要调用。步骤标题使用简短的动词短语；同一时间最多一个 in_progress。",
+		Name:        updatePlanToolName,
+		Description: locales.ToolUpdatePlanDescription(),
 		Parameters: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -452,7 +452,7 @@ func updatePlanTool() agent.Tool {
 						"properties": map[string]any{
 							"title": map[string]any{
 								"type":        "string",
-								"description": "用户可读的短步骤标题，例如“比较 X 与 Y 的差异”。",
+								"description": locales.ToolUpdatePlanStepTitleDescription(),
 								"maxLength":   80,
 							},
 							"status": map[string]any{
@@ -474,12 +474,12 @@ func updatePlanTool() agent.Tool {
 		}
 		if len(call.Arguments) > 0 {
 			if err := json.Unmarshal(call.Arguments, &input); err != nil {
-				return agent.ErrorResult("计划参数无效：" + err.Error()), nil
+				return agent.ErrorResult(locales.ToolUpdatePlanInvalidArgs(err.Error())), nil
 			}
 		}
 		steps, err := normalizePlanSteps(input.Steps)
 		if err != nil {
-			return agent.ErrorResult("计划无效：" + err.Error()), nil
+			return agent.ErrorResult(locales.ToolUpdatePlanInvalid(err.Error())), nil
 		}
 		return agent.TextResult(formatPlan(steps)), nil
 	})
@@ -487,25 +487,25 @@ func updatePlanTool() agent.Tool {
 
 func normalizePlanSteps(steps []planStep) ([]planStep, error) {
 	if len(steps) == 0 {
-		return nil, fmt.Errorf("至少需要一个步骤")
+		return nil, errors.New(locales.ToolUpdatePlanNeedStep())
 	}
 	if len(steps) > 8 {
-		return nil, fmt.Errorf("最多支持 8 个步骤")
+		return nil, errors.New(locales.ToolUpdatePlanTooManySteps())
 	}
 	normalized := make([]planStep, len(steps))
 	inProgress := 0
 	for index, step := range steps {
 		title := strings.Join(strings.Fields(step.Title), " ")
 		if title == "" {
-			return nil, fmt.Errorf("第 %d 步缺少标题", index+1)
+			return nil, errors.New(locales.ToolUpdatePlanStepMissingTitle(index + 1))
 		}
 		if len([]rune(title)) > 80 {
-			return nil, fmt.Errorf("第 %d 步标题超过 80 个字符", index+1)
+			return nil, errors.New(locales.ToolUpdatePlanStepTitleTooLong(index + 1))
 		}
 		switch step.Status {
 		case "pending", "in_progress", "completed":
 		default:
-			return nil, fmt.Errorf("第 %d 步状态无效", index+1)
+			return nil, errors.New(locales.ToolUpdatePlanStepInvalidStatus(index + 1))
 		}
 		if step.Status == "in_progress" {
 			inProgress++
@@ -513,14 +513,14 @@ func normalizePlanSteps(steps []planStep) ([]planStep, error) {
 		normalized[index] = planStep{Title: title, Status: step.Status}
 	}
 	if inProgress > 1 {
-		return nil, fmt.Errorf("同一时间最多只能有一个进行中的步骤")
+		return nil, errors.New(locales.ToolUpdatePlanMultipleInProgress())
 	}
 	return normalized, nil
 }
 
 func formatPlan(steps []planStep) string {
 	var text strings.Builder
-	text.WriteString("计划已更新：\n")
+	text.WriteString(locales.ToolUpdatePlanUpdated() + "\n")
 	hasInProgress := false
 	allCompleted := true
 	for index, step := range steps {
@@ -534,11 +534,11 @@ func formatPlan(steps []planStep) string {
 	}
 	switch {
 	case allCompleted:
-		text.WriteString("所有步骤已完成；请给出最终回答。")
+		text.WriteString(locales.ToolUpdatePlanAllDone())
 	case hasInProgress:
-		text.WriteString("继续执行当前步骤；完成后再次调用 update_plan 更新状态。")
+		text.WriteString(locales.ToolUpdatePlanContinue())
 	default:
-		text.WriteString("请选择一个待办步骤标为 in_progress 后继续执行。")
+		text.WriteString(locales.ToolUpdatePlanPickStep())
 	}
 	return text.String()
 }
@@ -546,11 +546,11 @@ func formatPlan(steps []planStep) string {
 func planStatusLabel(status string) string {
 	switch status {
 	case "pending":
-		return "待办"
+		return locales.PlanStatusPending()
 	case "in_progress":
-		return "进行中"
+		return locales.PlanStatusInProgress()
 	case "completed":
-		return "完成"
+		return locales.PlanStatusCompleted()
 	default:
 		return status
 	}
@@ -558,20 +558,19 @@ func planStatusLabel(status string) string {
 
 func memorySearchTool(memory Memory, conversationID string) agent.Tool {
 	return agent.NewTool(agent.ToolSpec{
-		Name: "search_memory",
-		Description: "搜索过去的对话记录，查找用户以前提过的偏好、项目、决定或事实。" +
-			"仅在需要历史上下文时调用；结果可能过时，不要编造未返回的内容。",
+		Name:        "search_memory",
+		Description: locales.ToolSearchMemoryDescription(),
 		Parameters: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
 				"query": map[string]any{
 					"type":        "string",
-					"description": "要搜索的历史信息关键词或自然语言问题。",
+					"description": locales.ToolSearchMemoryQueryDescription(),
 					"maxLength":   200,
 				},
 				"limit": map[string]any{
 					"type":        "integer",
-					"description": "可选结果数量，默认 5，最多 10。",
+					"description": locales.ToolSearchMemoryLimitDescription(),
 					"minimum":     1,
 					"maximum":     10,
 				},
@@ -586,25 +585,25 @@ func memorySearchTool(memory Memory, conversationID string) agent.Tool {
 		}
 		if len(call.Arguments) > 0 {
 			if err := json.Unmarshal(call.Arguments, &input); err != nil {
-				return agent.ErrorResult("记忆搜索参数无效：" + err.Error()), nil
+				return agent.ErrorResult(locales.ToolSearchMemoryInvalidArgs(err.Error())), nil
 			}
 		}
 		query := strings.TrimSpace(input.Query)
 		if query == "" {
-			return agent.ErrorResult("记忆搜索词不能为空。"), nil
+			return agent.ErrorResult(locales.ToolSearchMemoryEmptyQuery()), nil
 		}
 		if len([]rune(query)) > 200 {
-			return agent.ErrorResult("记忆搜索词最多 200 个字符。"), nil
+			return agent.ErrorResult(locales.ToolSearchMemoryQueryTooLong()), nil
 		}
 		results, err := memory.Search(ctx, query, input.Limit, conversationID)
 		if err != nil {
-			return agent.ErrorResult("记忆搜索失败：" + err.Error()), nil
+			return agent.ErrorResult(locales.ToolSearchMemoryFailed(err.Error())), nil
 		}
 		if len(results) == 0 {
-			return agent.TextResult("没有在过去的对话中找到相关内容。"), nil
+			return agent.TextResult(locales.ToolSearchMemoryNoResults()), nil
 		}
 		var text strings.Builder
-		fmt.Fprintf(&text, "以下是历史对话中与“%s”相关的记录。它们可能过时或不完整，只作为背景参考：\n\n", query)
+		text.WriteString(locales.ToolSearchMemoryResultsIntro(query))
 		for index, result := range results {
 			fmt.Fprintf(&text, "%d. [%s] %s\n%s\n\n",
 				index+1,
@@ -613,26 +612,25 @@ func memorySearchTool(memory Memory, conversationID string) agent.Tool {
 				result.Text,
 			)
 		}
-		text.WriteString("不要声称记得这里没有返回的内容；与用户当前陈述冲突时以当前陈述为准。")
+		text.WriteString(locales.ToolSearchMemoryNote())
 		return agent.TextResult(text.String()), nil
 	})
 }
 
 func webSearchTool(provider search.Provider) agent.Tool {
 	return agent.NewTool(agent.ToolSpec{
-		Name: "web_search",
-		Description: "搜索互联网获取最新或外部信息。返回结果的标题、URL 和摘要。" +
-			"引用结果时使用 Markdown 链接，不要编造搜索结果。",
+		Name:        "web_search",
+		Description: locales.ToolWebSearchDescription(),
 		Parameters: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
 				"query": map[string]any{
 					"type":        "string",
-					"description": "要搜索的查询词。",
+					"description": locales.ToolWebSearchQueryDescription(),
 				},
 				"max_results": map[string]any{
 					"type":        "integer",
-					"description": "可选结果数量，默认 5，最多 10。",
+					"description": locales.ToolSearchMemoryLimitDescription(),
 					"minimum":     1,
 					"maximum":     search.MaxResults,
 				},
@@ -647,19 +645,19 @@ func webSearchTool(provider search.Provider) agent.Tool {
 		}
 		if len(call.Arguments) > 0 {
 			if err := json.Unmarshal(call.Arguments, &input); err != nil {
-				return agent.ErrorResult("搜索参数无效：" + err.Error()), nil
+				return agent.ErrorResult(locales.ToolWebSearchInvalidArgs(err.Error())), nil
 			}
 		}
 		query := strings.TrimSpace(input.Query)
 		if query == "" {
-			return agent.ErrorResult("搜索词不能为空。"), nil
+			return agent.ErrorResult(locales.ToolWebSearchEmptyQuery()), nil
 		}
 		results, err := provider.Search(ctx, query, input.MaxResults)
 		if err != nil {
-			return agent.ErrorResult("联网搜索失败：" + err.Error()), nil
+			return agent.ErrorResult(locales.ToolWebSearchFailed(err.Error())), nil
 		}
 		if len(results) == 0 {
-			return agent.ErrorResult("联网搜索没有返回结果。"), nil
+			return agent.ErrorResult(locales.ToolWebSearchNoResults()), nil
 		}
 		return agent.TextResult(formatSearchResults(provider.Name(), query, results)), nil
 	})
@@ -667,7 +665,7 @@ func webSearchTool(provider search.Provider) agent.Tool {
 
 func formatSearchResults(provider, query string, results []search.Result) string {
 	var text strings.Builder
-	fmt.Fprintf(&text, "以下是 %s 的联网搜索结果（查询：%s）：\n\n", provider, query)
+	text.WriteString(locales.ToolWebSearchResultsIntro(provider, query))
 	for index, result := range results {
 		title := strings.NewReplacer("[", "\\[", "]", "\\]").Replace(result.Title)
 		fmt.Fprintf(&text, "%d. [%s](<%s>)\n", index+1, title, result.URL)
@@ -675,6 +673,6 @@ func formatSearchResults(provider, query string, results []search.Result) string
 			fmt.Fprintf(&text, "   %s\n", result.Snippet)
 		}
 	}
-	text.WriteString("\n请基于这些结果回答，并使用上面的 Markdown 链接引用来源。不要编造未出现的 URL。")
+	text.WriteString(locales.ToolWebSearchNote())
 	return text.String()
 }

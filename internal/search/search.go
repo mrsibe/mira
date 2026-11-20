@@ -10,6 +10,9 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"github.com/egoist/mygo/i18n"
+	"github.com/mrsibe/mira/locales"
 )
 
 const (
@@ -19,8 +22,6 @@ const (
 	maxResponseBytes = 2 << 20
 	requestTimeout   = 15 * time.Second
 )
-
-var ErrEmptyQuery = errors.New("搜索词不能为空")
 
 // Result is one normalized web search result.
 type Result struct {
@@ -72,7 +73,7 @@ func readLimited(body io.Reader) ([]byte, error) {
 		return nil, err
 	}
 	if len(data) > maxResponseBytes {
-		return nil, errors.New("搜索响应过大")
+		return nil, errors.New(locales.ErrSearchResponseTooLarge())
 	}
 	return data, nil
 }
@@ -89,6 +90,13 @@ func cleanText(value string, limit int) string {
 	return strings.TrimSpace(string(runes[:limit])) + "…"
 }
 
+func acceptLanguage() string {
+	if strings.HasPrefix(strings.ToLower(i18n.Locale()), "zh") {
+		return "zh-CN,zh;q=0.9,en;q=0.8"
+	}
+	return "en-US,en;q=0.9"
+}
+
 func validUTF8(value string) string {
 	if utf8.ValidString(value) {
 		return value
@@ -101,7 +109,7 @@ func providerError(provider string, err error) error {
 		return nil
 	}
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-		return fmt.Errorf("%s 搜索已取消或超时", provider)
+		return fmt.Errorf("%s", locales.ErrSearchCanceled(provider))
 	}
-	return fmt.Errorf("%s 搜索失败: %w", provider, err)
+	return fmt.Errorf("%s: %w", locales.ErrSearchFailed(provider), err)
 }

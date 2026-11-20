@@ -1,3 +1,4 @@
+import { type Messages, messagesIn } from "../locales";
 import type { ChatEvent } from "../mygo";
 import type { RunPart, RunView } from "./types";
 
@@ -10,7 +11,11 @@ export function emptyRun(): RunView {
   };
 }
 
-export function applyChatEvent(current: RunView | undefined, event: ChatEvent): RunView {
+export function applyChatEvent(
+  current: RunView | undefined,
+  event: ChatEvent,
+  messages: Messages = messagesIn("zh-Hans"),
+): RunView {
   const run = current ?? emptyRun();
   const parts: RunPart[] = [...run.parts];
   let nextPartId = run.nextPartId;
@@ -125,7 +130,7 @@ export function applyChatEvent(current: RunView | undefined, event: ChatEvent): 
     }
     case "error":
       next.status = "error";
-      next.error = event.error ?? "生成失败";
+      next.error = event.error ?? messages.runErrorFallback();
       break;
   }
 

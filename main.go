@@ -42,6 +42,9 @@ const disableBrowserZoom = `
 
 func main() {
 	app := mygo.App
+	// English is the fallback for readers of other languages; Chinese is
+	// picked when the system prefers it.
+	app.SetLanguages("en", "zh-Hans")
 	if mygo.IsDev() {
 		app.SetName("Mira Dev")
 	}
@@ -73,7 +76,7 @@ func main() {
 	mygo.BindAs("Mira", mira)
 	mygo.BindAs("MiraTheme", miratheme.New(applyTheme))
 	mygo.BindAs("MiraUpdate", updates.New())
-	mygo.Use(updater.New(updater.Options{Language: "zh-Hans"}))
+	mygo.Use(updater.New(updater.Options{}))
 	memories.MaybeStart(cfg.Settings())
 
 	app.WhenReady(func() {

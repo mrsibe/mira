@@ -3,6 +3,7 @@ import { type HTMLAttributes, type ReactNode, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import rehypeHighlight from "rehype-highlight";
 import remarkGfm from "remark-gfm";
+import { useMessages } from "../i18n";
 import { copyText } from "./format";
 
 type HastNode = {
@@ -43,6 +44,7 @@ export function Markdown({ children }: { children: string }) {
 }
 
 function CodeBlock({ node, children }: { node?: HastNode; children: ReactNode }) {
+  const t = useMessages();
   const [copied, setCopied] = useState(false);
   const language = findLanguage(node);
   const text = nodeText(node);
@@ -61,7 +63,7 @@ function CodeBlock({ node, children }: { node?: HastNode; children: ReactNode })
           }}
         >
           {copied ? <Check size={14} /> : <Copy size={14} />}
-          {copied ? "已复制" : "复制"}
+          {copied ? t.commonCopied() : t.commonCopy()}
         </button>
       </div>
       <pre {...({} as HTMLAttributes<HTMLPreElement>)}>{children}</pre>

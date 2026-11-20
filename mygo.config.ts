@@ -6,6 +6,10 @@ export default defineConfig({
   version: "0.3.3",
   copyright: "© 2026 MrSibe",
   publisher: "MrSibe",
+  i18n: {
+    dir: "locales",
+    source: "zh-Hans",
+  },
   updates: {
     publicKey: "2cdI3cyRcrHa2YNZUIsojIgAhXutvNa11Cj/4OhMnT8=",
     github: "mrsibe/mira",

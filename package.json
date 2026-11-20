@@ -16,7 +16,8 @@
     "format": "biome format --write .",
     "test": "vitest run",
     "test:watch": "vitest",
-    "check": "biome check . && vitest run && tsc --noEmit && vite build"
+    "check": "biome check . && mygo i18n check && vitest run && tsc --noEmit && vite build",
+    "i18n:check": "mygo i18n check"
   },
   "dependencies": {
     "@json-render/core": "0.22.0",

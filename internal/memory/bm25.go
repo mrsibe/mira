@@ -10,6 +10,7 @@ import (
 
 	"github.com/mrsibe/goat/ai"
 	"github.com/mrsibe/mira/internal/store"
+	"github.com/mrsibe/mira/locales"
 	"golang.org/x/text/unicode/norm"
 )
 
@@ -63,7 +64,7 @@ func buildBM25(source indexSource) (*bm25Index, error) {
 	for _, conversation := range source.List() {
 		_, records, err := source.GetRecords(conversation.ID)
 		if err != nil {
-			return nil, fmt.Errorf("读取会话 %s: %w", conversation.ID, err)
+			return nil, fmt.Errorf("%s %s: %w", locales.ErrReadConversation(), conversation.ID, err)
 		}
 		for _, doc := range turnDocs(conversation, records) {
 			index.docs = append(index.docs, doc)
@@ -94,10 +95,10 @@ func turnDocs(conversation store.Conversation, records []store.MessageRecord) []
 		}
 		var text strings.Builder
 		if current.title != "" {
-			fmt.Fprintf(&text, "对话：%s\n", current.title)
+			text.WriteString(locales.MemoryTranscriptConversation("", current.title))
 		}
 		if current.user != "" {
-			fmt.Fprintf(&text, "用户：%s\n", current.user)
+			text.WriteString(locales.MemoryTranscriptUser(current.user))
 		}
 		if current.assistant != "" {
 			fmt.Fprintf(&text, "Mira：%s", current.assistant)

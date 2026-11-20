@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useMessages } from "../../i18n";
 import { type MemoryView, Mira } from "../../mygo";
 
 type MemoryEditorOptions = {
@@ -9,6 +10,7 @@ type MemoryEditorOptions = {
 export type MemoryEditor = ReturnType<typeof useMemoryEditor>;
 
 export function useMemoryEditor({ active, onError }: MemoryEditorOptions) {
+  const messages = useMessages();
   const [memory, setMemory] = useState<MemoryView | null>(null);
   const [summaryDraft, setSummaryDraft] = useState("");
   const [dirty, setDirty] = useState(false);
@@ -43,7 +45,7 @@ export function useMemoryEditor({ active, onError }: MemoryEditorOptions) {
       } catch (error) {
         if (!alive) return;
         setLoading(false);
-        onError(error instanceof Error ? error.message : "无法读取记忆");
+        onError(error instanceof Error ? error.message : messages.memoryReadFailed());
       }
     }
 
@@ -53,7 +55,7 @@ export function useMemoryEditor({ active, onError }: MemoryEditorOptions) {
       alive = false;
       window.clearInterval(timer);
     };
-  }, [active, adopt, onError]);
+  }, [active, adopt, messages, onError]);
 
   const markDirty = useCallback(() => {
     dirtyRef.current = true;
@@ -70,10 +72,10 @@ export function useMemoryEditor({ active, onError }: MemoryEditorOptions) {
       adopt(saved, true);
       return saved;
     } catch (error) {
-      setConflict(isRevisionConflict(error));
+      setConflict(isRevisionConflict(error, messages));
       throw error;
     }
-  }, [adopt, summaryDraft]);
+  }, [adopt, messages, summaryDraft]);
 
   const regenerate = useCallback(async () => {
     onError("");
@@ -82,8 +84,8 @@ export function useMemoryEditor({ active, onError }: MemoryEditorOptions) {
       if (dirtyRef.current) await saveDraft();
       adopt(await Mira.regenerateMemory(), true);
     } catch (error) {
-      setConflict(isRevisionConflict(error));
-      onError(error instanceof Error ? error.message : "更新摘要失败");
+      setConflict(isRevisionConflict(error, messages));
+      onError(error instanceof Error ? error.message : messages.memoryUpdateShortFailed());
       try {
         adopt(await Mira.getMemory());
       } catch {
@@ -92,7 +94,7 @@ export function useMemoryEditor({ active, onError }: MemoryEditorOptions) {
     } finally {
       setAction(false);
     }
-  }, [adopt, onError, saveDraft]);
+  }, [adopt, messages, onError, saveDraft]);
 
   const clear = useCallback(async () => {
     onError("");
@@ -100,11 +102,11 @@ export function useMemoryEditor({ active, onError }: MemoryEditorOptions) {
     try {
       adopt(await Mira.clearMemory(), true);
     } catch (error) {
-      onError(error instanceof Error ? error.message : "清空记忆失败");
+      onError(error instanceof Error ? error.message : messages.memoryClearFailed());
     } finally {
       setAction(false);
     }
-  }, [adopt, onError]);
+  }, [adopt, messages, onError]);
 
   const reload = useCallback(async () => {
     onError("");
@@ -113,9 +115,9 @@ export function useMemoryEditor({ active, onError }: MemoryEditorOptions) {
     try {
       adopt(await Mira.getMemory(), true);
     } catch (error) {
-      onError(error instanceof Error ? error.message : "无法读取记忆");
+      onError(error instanceof Error ? error.message : messages.memoryReadFailed());
     }
-  }, [adopt, onError]);
+  }, [adopt, messages, onError]);
 
   return {
     memory,
@@ -133,6 +135,6 @@ export function useMemoryEditor({ active, onError }: MemoryEditorOptions) {
   };
 }
 
-function isRevisionConflict(error: unknown) {
-  return error instanceof Error && error.message.includes("记忆已在后台更新");
+function isRevisionConflict(error: unknown, messages: ReturnType<typeof useMessages>) {
+  return error instanceof Error && error.message.includes(messages.errMemoryUpdated());
 }

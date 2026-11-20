@@ -1,7 +1,8 @@
 import { type FormEvent, useCallback, useEffect, useState } from "react";
+import { useMessages } from "../i18n";
 import type { Appearance } from "../lib/appearance";
 import type { SettingsSection, ThemeMode } from "../lib/types";
-import { type Input, Mira, type ModelView, type View } from "../mygo";
+import { type Input, type LanguageState, Mira, type ModelView, type View } from "../mygo";
 import { Button, Modal, Notice } from "../ui";
 import { AboutSettings } from "./settings/AboutSettings";
 import { GeneralSettings } from "./settings/GeneralSettings";
@@ -15,6 +16,7 @@ import { useMemoryEditor } from "./settings/useMemoryEditor";
 
 type SettingsDialogProps = {
   settings: View;
+  language: LanguageState | null;
   theme: ThemeMode;
   appearance: Appearance;
   initialSection: SettingsSection;
@@ -27,10 +29,12 @@ type SettingsDialogProps = {
   onClearTavilyKey: () => Promise<View>;
   onThemeChange: (theme: ThemeMode) => void;
   onAppearanceChange: (appearance: Appearance) => void;
+  onLanguageChange: (tag: string) => void;
 };
 
 export function SettingsDialog({
   settings,
+  language,
   theme,
   appearance,
   initialSection,
@@ -43,7 +47,9 @@ export function SettingsDialog({
   onClearTavilyKey,
   onThemeChange,
   onAppearanceChange,
+  onLanguageChange,
 }: SettingsDialogProps) {
+  const t = useMessages();
   const [section, setSection] = useState<SettingsSection>(initialSection);
   const [draft, setDraft] = useState<SettingsDraft>(() => createDraft(settings));
   const [error, setError] = useState("");
@@ -83,7 +89,7 @@ export function SettingsDialog({
       !settings.hasTavilyApiKey &&
       !draft.tavilyApiKey.trim()
     ) {
-      setError("使用 Tavily 搜索时需要填写 API Key");
+      setError(t.settingsTavilyKeyRequired());
       setSection("search");
       return;
     }
@@ -112,18 +118,18 @@ export function SettingsDialog({
         try {
           await memory.saveDraft();
         } catch (saveError) {
-          setError(saveError instanceof Error ? saveError.message : "保存记忆失败");
+          setError(saveError instanceof Error ? saveError.message : t.settingsSaveMemoryFailed());
           setSection("memory");
           return;
         }
       }
       if (enteredTavilyKey && saved.tavilyApiKeyStorage === "session") {
-        setNotice("系统钥匙串不可用，刚输入的密钥只保存在本次会话，重启后需要重新输入。");
+        setNotice(t.settingsKeychainUnavailableNotice());
         return;
       }
       onClose();
     } catch (saveError) {
-      setError(saveError instanceof Error ? saveError.message : "保存失败");
+      setError(saveError instanceof Error ? saveError.message : t.settingsSaveFailed());
     } finally {
       setSaving(false);
     }
@@ -135,7 +141,7 @@ export function SettingsDialog({
         <SettingsNav section={section} onChange={setSection} />
         <form className="settings-panel" onSubmit={submit}>
           <h2 id="settings-title" className="sr-only">
-            设置
+            {t.settingsTitle()}
           </h2>
           <div className="settings-content">
             {section === "general" && (
@@ -145,6 +151,8 @@ export function SettingsDialog({
                 appearance={appearance}
                 systemFonts={systemFonts}
                 onAppearanceChange={onAppearanceChange}
+                language={language}
+                onLanguageChange={onLanguageChange}
               />
             )}
             {section === "personalization" && (
@@ -181,12 +189,16 @@ export function SettingsDialog({
           <footer className="modal-actions settings-footer">
             <span className="spacer" />
             {section === "about" || section === "general" || section === "model" ? (
-              <Button onClick={onClose}>完成</Button>
+              <Button onClick={onClose}>{t.commonDone()}</Button>
             ) : (
               <>
-                <Button onClick={onClose}>取消</Button>
+                <Button onClick={onClose}>{t.commonCancel()}</Button>
                 <Button type="submit" variant="primary" disabled={saving || memory.action}>
-                  {saving ? "保存中…" : memory.dirty && section === "memory" ? "保存记忆" : "保存"}
+                  {saving
+                    ? t.commonSaving()
+                    : memory.dirty && section === "memory"
+                      ? t.settingsSaveMemory()
+                      : t.commonSave()}
                 </Button>
               </>
             )}

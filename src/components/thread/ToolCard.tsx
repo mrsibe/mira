@@ -1,9 +1,11 @@
 import { Wrench } from "lucide-react";
 import { useState } from "react";
+import { useMessages } from "../../i18n";
 import { toolActivityLabel } from "../../lib/activity";
 import type { ToolRun } from "../../lib/types";
 
 export function ToolCard({ tool }: { tool: ToolRun }) {
+  const t = useMessages();
   const [open, setOpen] = useState(tool.status === "running");
 
   return (
@@ -15,18 +17,18 @@ export function ToolCard({ tool }: { tool: ToolRun }) {
       <summary>
         <span className={`tool-dot ${tool.status}`} />
         <Wrench size={14} />
-        <strong>{toolActivityLabel(tool)}</strong>
+        <strong>{toolActivityLabel(tool, t)}</strong>
       </summary>
       <div className="tool-detail">
         {tool.arguments && (
           <>
-            <span>参数</span>
+            <span>{t.threadToolParams()}</span>
             <pre>{tool.arguments}</pre>
           </>
         )}
         {tool.result !== undefined && (
           <>
-            <span>{tool.isError ? "错误" : "结果"}</span>
+            <span>{tool.isError ? t.threadToolError() : t.threadToolResult()}</span>
             <pre>{tool.result}</pre>
           </>
         )}

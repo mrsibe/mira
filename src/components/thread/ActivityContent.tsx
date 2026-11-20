@@ -1,3 +1,4 @@
+import { useMessages } from "../../i18n";
 import { type Activity, liveActivityTitle } from "../../lib/activity";
 import { PlanList } from "./PlanList";
 import { ToolCard } from "./ToolCard";
@@ -23,10 +24,11 @@ export function ActivityContent({ activity }: { activity: Activity }) {
 }
 
 export function LiveActivity({ activity, streaming }: { activity: Activity; streaming: boolean }) {
+  const t = useMessages();
   return (
     <div className="activity-live" aria-live="polite">
       {streaming && <span className="activity-pulse" />}
-      <span>{liveActivityTitle(activity, streaming)}</span>
+      <span>{liveActivityTitle(activity, streaming, t)}</span>
     </div>
   );
 }

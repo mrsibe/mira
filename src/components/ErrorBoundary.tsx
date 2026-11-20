@@ -1,4 +1,5 @@
 import { Component, type ErrorInfo, type ReactNode } from "react";
+import { useMessages } from "../i18n";
 import { BrandMark } from "./BrandMark";
 
 type ErrorBoundaryProps = {
@@ -24,17 +25,22 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
     const { error } = this.state;
     if (!error) return this.props.children;
 
-    return (
-      <div className="boot-screen error" role="alert">
-        <BrandMark className="boot-mark" />
-        <h1>界面出现错误</h1>
-        <p>{error.message || "发生了未预期的渲染错误。"}</p>
-        <button type="button" className="button primary" onClick={reloadApp}>
-          重新加载
-        </button>
-      </div>
-    );
+    return <ErrorScreen error={error} />;
   }
+}
+
+function ErrorScreen({ error }: { error: Error }) {
+  const t = useMessages();
+  return (
+    <div className="boot-screen error" role="alert">
+      <BrandMark className="boot-mark" />
+      <h1>{t.errorBoundaryTitle()}</h1>
+      <p>{error.message || t.errorBoundaryMessage()}</p>
+      <button type="button" className="button primary" onClick={reloadApp}>
+        {t.errorBoundaryReload()}
+      </button>
+    </div>
+  );
 }
 
 function reloadApp() {

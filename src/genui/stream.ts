@@ -5,6 +5,7 @@ import {
   type SpecStreamLine,
 } from "@json-render/core";
 import type { AssistantSegment, UISpecView } from "../lib/types";
+import { type Messages, messagesIn } from "../locales";
 
 const specFence = "```spec";
 const specCacheLimit = 32;
@@ -18,11 +19,12 @@ export type ParsedAssistantAnswer = {
 
 type ParseOptions = {
   streaming?: boolean;
+  messages?: Messages;
 };
 
 export function parseAssistantAnswer(
   raw: string,
-  { streaming = false }: ParseOptions = {},
+  { streaming = false, messages = messagesIn("zh-Hans") }: ParseOptions = {},
 ): ParsedAssistantAnswer {
   const lines = raw.split("\n");
   const chunks: RawChunk[] = [];
@@ -47,7 +49,7 @@ export function parseAssistantAnswer(
       fences += 1;
       chunks.push({ kind: "spec", lines: [], closed: false });
       if (fences > 1) {
-        error ||= "每条回答最多只能包含一个界面。";
+        error ||= messages.genuiErrorSingleSpec();
       }
       continue;
     }
@@ -74,7 +76,7 @@ export function parseAssistantAnswer(
     };
   }
   if (inSpec && !streaming) {
-    error ||= "界面描述没有完整结束。";
+    error ||= messages.genuiErrorIncomplete();
   }
 
   const segments: AssistantSegment[] = [];
@@ -90,7 +92,7 @@ export function parseAssistantAnswer(
       }
       continue;
     }
-    const spec = parseSpecChunk(chunk, streaming, error);
+    const spec = parseSpecChunk(chunk, streaming, error, messages);
     if (specIndex === 0) {
       firstSpec = spec;
       segments.push({ kind: "spec", key: `spec-${segmentIndex}`, spec });
@@ -124,6 +126,7 @@ function parseSpecChunk(
   chunk: Extract<RawChunk, { kind: "spec" }>,
   streaming: boolean,
   priorError: string,
+  messages: Messages,
 ) {
   const cacheKey =
     chunk.closed && !priorError
@@ -140,7 +143,7 @@ function parseSpecChunk(
 
   let error = priorError;
   if (!chunk.closed && !streaming) {
-    error ||= "界面描述没有完整结束。";
+    error ||= messages.genuiErrorIncomplete();
   }
 
   const patches: SpecStreamLine[] = [];
@@ -149,7 +152,7 @@ function parseSpecChunk(
     if (!trimmed) continue;
     const patch = parseSpecStreamLine(trimmed);
     if (!patch) {
-      error ||= "界面描述包含无效的 JSONL 补丁。";
+      error ||= messages.genuiErrorInvalidPatch();
       continue;
     }
     patches.push(patch);
@@ -161,14 +164,14 @@ function parseSpecChunk(
       spec = applySpecPatch(spec, patch);
     }
   } catch {
-    error ||= "界面描述无法应用。";
+    error ||= messages.genuiErrorApply();
   }
 
   if (!streaming && (!spec.root || Object.keys(spec.elements).length === 0)) {
-    error ||= "界面描述为空。";
+    error ||= messages.genuiErrorEmpty();
   }
   if (!streaming) {
-    error ||= checkLimits(spec);
+    error ||= checkLimits(spec, messages);
   }
 
   const status = !chunk.closed && streaming ? "streaming" : error ? "invalid" : "complete";
@@ -188,16 +191,16 @@ function parseSpecChunk(
   return result;
 }
 
-function checkLimits(spec: Spec) {
+function checkLimits(spec: Spec, messages: Messages) {
   const elementCount = Object.keys(spec.elements).length;
-  if (elementCount > 80) return "界面元素过多，最多支持 80 个。";
+  if (elementCount > 80) return messages.genuiErrorTooManyElements();
   const seen = new Set<string>();
   const stack: Array<{ key: string; depth: number }> = [{ key: spec.root, depth: 1 }];
   while (stack.length > 0) {
     const current = stack.pop();
     if (!current || seen.has(current.key)) continue;
     seen.add(current.key);
-    if (current.depth > 8) return "界面层级过深，最多支持 8 层。";
+    if (current.depth > 8) return messages.genuiErrorTooDeep();
     const element = spec.elements[current.key];
     if (!element) continue;
     for (const child of element.children ?? []) {

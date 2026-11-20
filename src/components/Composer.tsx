@@ -1,5 +1,6 @@
 import { ArrowUp, Check, Plus, Square } from "lucide-react";
 import { type KeyboardEvent as ReactKeyboardEvent, useEffect, useRef, useState } from "react";
+import { useMessages } from "../i18n";
 import type { ReasoningEffort } from "../lib/types";
 
 type ComposerProps = {
@@ -16,19 +17,12 @@ type ComposerProps = {
   onAttach: () => void;
 };
 
-const reasoningOptions = [
-  { value: "auto", label: "自动" },
-  { value: "low", label: "低" },
-  { value: "medium", label: "中" },
-  { value: "high", label: "高" },
-] as const satisfies ReadonlyArray<{ value: ReasoningEffort; label: string }>;
-
 export function Composer({
   value,
   running,
   disabled,
   centered = false,
-  placeholder = "询问任何问题",
+  placeholder,
   reasoningEffort,
   onChange,
   onReasoningEffortChange,
@@ -36,6 +30,14 @@ export function Composer({
   onStop,
   onAttach,
 }: ComposerProps) {
+  const t = useMessages();
+  const placeholderText = placeholder ?? t.composerPlaceholder();
+  const reasoningOptions = [
+    { value: "auto", label: t.composerReasoningAuto() },
+    { value: "low", label: t.composerReasoningLow() },
+    { value: "medium", label: t.composerReasoningMedium() },
+    { value: "high", label: t.composerReasoningHigh() },
+  ] as const satisfies ReadonlyArray<{ value: ReasoningEffort; label: string }>;
   const ref = useRef<HTMLTextAreaElement>(null);
   const reasoningRef = useRef<HTMLDivElement>(null);
   const reasoningButtonRef = useRef<HTMLButtonElement>(null);
@@ -116,7 +118,12 @@ export function Composer({
   return (
     <div className={`composer-zone ${centered ? "centered" : ""}`}>
       <div className={`composer ${running ? "is-running" : ""}`}>
-        <button type="button" className="composer-tool" onClick={onAttach} title="附件">
+        <button
+          type="button"
+          className="composer-tool"
+          onClick={onAttach}
+          title={t.composerAttach()}
+        >
           <Plus size={19} />
         </button>
         <div className="composer-input">
@@ -124,7 +131,7 @@ export function Composer({
             ref={ref}
             value={value}
             rows={1}
-            aria-label="消息"
+            aria-label={t.composerMessage()}
             onChange={(event) => onChange(event.target.value)}
             onKeyDown={(event) => {
               if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
@@ -135,7 +142,7 @@ export function Composer({
           />
           {!value && (
             <span className="composer-placeholder" aria-hidden="true">
-              {placeholder}
+              {placeholderText}
             </span>
           )}
         </div>
@@ -144,11 +151,11 @@ export function Composer({
             ref={reasoningButtonRef}
             type="button"
             className="composer-reasoning-button"
-            aria-label={`思维强度：${currentReasoning.label}`}
+            aria-label={t.composerReasoningEffortWith(currentReasoning.label)}
             aria-haspopup="menu"
             aria-expanded={reasoningOpen}
             aria-controls="reasoning-menu"
-            title={`思维强度：${currentReasoning.label}`}
+            title={t.composerReasoningEffortWith(currentReasoning.label)}
             onClick={() => setReasoningOpen((open) => !open)}
           >
             <span className="composer-reasoning-label">{currentReasoning.label}</span>
@@ -159,11 +166,11 @@ export function Composer({
               id="reasoning-menu"
               className="composer-reasoning-menu"
               role="menu"
-              aria-label="思维强度"
+              aria-label={t.composerReasoningEffort()}
               onKeyDown={onReasoningKeyDown}
             >
               <span className="composer-reasoning-heading" aria-hidden="true">
-                思维强度
+                {t.composerReasoningEffort()}
               </span>
               {reasoningOptions.map((option) => {
                 const selected = reasoningEffort === option.value;
@@ -186,7 +193,12 @@ export function Composer({
           )}
         </div>
         {running ? (
-          <button type="button" className="send-button stop" onClick={onStop} title="停止生成">
+          <button
+            type="button"
+            className="send-button stop"
+            onClick={onStop}
+            title={t.composerStop()}
+          >
             <Square size={14} fill="currentColor" />
           </button>
         ) : (
@@ -195,7 +207,7 @@ export function Composer({
             className="send-button"
             disabled={!canSend}
             onClick={onSend}
-            title="发送"
+            title={t.composerSend()}
           >
             <ArrowUp size={18} strokeWidth={2.4} />
           </button>
